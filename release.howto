@@ -1,0 +1,19 @@
+# steps to make release from https://www.elastic.co/guide/en/logstash/current/submitting-plugin.html work
+
+curl -sSL https://rvm.io/mpapis.asc | sudo gpg2 --import -
+curl -sSL https://get.rvm.io | bash -s stable --ruby=jruby --gems=rails,puma
+bash
+yum -y install git
+git clone https://github.com/Heiko-san/logstash-input-s3sqs.git
+cd logstash-input-s3sqs/
+gem install logstash-devutils
+gem install logstash-core-plugin-api
+gem install logstash-codec-json
+gem install logstash-mixin-aws
+bundler install
+bundle exec rake vendor
+# skip "bundle exec rspec" ... TODO: find a sane howto about how rspec works
+# setup ~/.gem/credentials file
+vim ~/.gem/credentials
+chmod 600 ~/.gem/credentials
+bundle exec rake publish_gem --trace
