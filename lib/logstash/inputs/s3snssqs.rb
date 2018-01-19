@@ -75,7 +75,7 @@ Aws.eager_autoload!
 #       ]
 #   }
 #
-class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
+class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
 
   BACKOFF_SLEEP_TIME = 1
@@ -84,13 +84,13 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
   EVENT_SOURCE = 'aws:s3'
   EVENT_TYPE = 'ObjectCreated'
 
-  config_name "s3sqs"
+  config_name "s3snssqs"
 
   default :codec, "plain"
 
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
-
+  config :queue_owner_aws_account_id, :validate => :string, :required => false
   # Whether to delete files from S3 after processing.
   config :delete_on_success, :validate => :boolean, :default => false
 
@@ -106,7 +106,7 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
 
   def setup_queue
     aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
-    queue_url = aws_sqs_client.get_queue_url(:queue_name =>  @queue)[:queue_url]
+    queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
     @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
     @s3 = Aws::S3::Client.new(aws_options_hash)
   rescue Aws::SQS::Errors::ServiceError => e
@@ -131,11 +131,12 @@ class LogStash::Inputs::S3SQS < LogStash::Inputs::Threadable
     @logger.debug("handle_message", :hash => hash, :message => message)
     # there may be test events sent from the s3 bucket which won't contain a Records array,
     # we will skip those events and remove them from queue
-    if hash['Message'] then
-      # typically there will be only 1 record per event, but since it is an array we will
+    message = JSON.parse(hash['Message'])
+    if message['Records'] then
+	    # typically there will be only 1 record per event, but since it is an array we will
       # treat it as if there could be more records
-      JSON.parse(hash['Message'])['Records'].each do |record|
-        @logger.info("We found a record", :record => record)
+      message['Records'].each do |record|
+        @logger.debug("We found a record", :record => record)
 	# in case there are any events with Records that aren't s3 object-created events and can't therefore be
         # processed by this plugin, we will skip them and remove them from queue
         if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then

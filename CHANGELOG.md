@@ -1,3 +1,7 @@
+## 1.1.5
+- Fix loglevel for some debug messages
+## 1.1.4
+- Add Account-ID to config
 ## 1.1.2
 - Fix a Bug in the S3 Key generation
 - Enable shipping throug SNS Topic (needs another toJSON)

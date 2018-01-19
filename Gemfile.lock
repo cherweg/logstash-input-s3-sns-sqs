@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-aws-s3sqs (1.1.1)
+    logstash-input-s3-sns-sqs (1.1.5)
       logstash-codec-json
       logstash-core-plugin-api (>= 1.60, <= 2.99)
       logstash-mixin-aws (>= 1.0.0)
@@ -47,9 +47,9 @@ GEM
     jruby-openssl (0.9.19-java)
     json (1.8.6-java)
     kramdown (1.14.0)
-    logstash-codec-json (3.0.4)
+    logstash-codec-json (3.0.5)
       logstash-core-plugin-api (>= 1.60, <= 2.99)
-    logstash-codec-plain (3.0.4)
+    logstash-codec-plain (3.0.5)
       logstash-core-plugin-api (>= 1.60, <= 2.99)
     logstash-core (5.5.1.snapshot1-java)
       chronic_duration (= 0.10.6)
@@ -147,7 +147,7 @@ PLATFORMS
 
 DEPENDENCIES
   logstash-devutils
-  logstash-input-aws-s3sqs!
+  logstash-input-s3-sns-sqs!
 
 BUNDLED WITH
    1.16.0
