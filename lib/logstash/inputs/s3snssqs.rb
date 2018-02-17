@@ -131,74 +131,76 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @logger.debug("handle_message", :hash => hash, :message => message)
     # there may be test events sent from the s3 bucket which won't contain a Records array,
     # we will skip those events and remove them from queue
-    message = JSON.parse(hash['Message'])
-    if message['Records'] then
-	    # typically there will be only 1 record per event, but since it is an array we will
-      # treat it as if there could be more records
-      message['Records'].each do |record|
-        @logger.debug("We found a record", :record => record)
-	# in case there are any events with Records that aren't s3 object-created events and can't therefore be
-        # processed by this plugin, we will skip them and remove them from queue
-        if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
-          @logger.debug("It is a valid record")
-	  bucket = CGI.unescape(record['s3']['bucket']['name'])
-	  key    = CGI.unescape(record['s3']['object']['key'])
+    if hash['Message'].present?
+      message = JSON.parse(hash['Message'])
+      if message['Records'] then
+	      # typically there will be only 1 record per event, but since it is an array we will
+        # treat it as if there could be more records
+        message['Records'].each do |record|
+          @logger.debug("We found a record", :record => record)
+	        # in case there are any events with Records that aren't s3 object-created events and can't therefore be
+          # processed by this plugin, we will skip them and remove them from queue
+          if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
+            @logger.debug("It is a valid record")
+	          bucket = CGI.unescape(record['s3']['bucket']['name'])
+	          key    = CGI.unescape(record['s3']['object']['key'])
 
-          # try download and :skip_delete if it fails
-          begin
-            response = @s3.get_object(
-              bucket: bucket,
-              key: key,
-            )
-          rescue => e
-            @logger.warn("issuing :skip_delete on failed download", :bucket => bucket, :object => key, :error => e)
-            throw :skip_delete
-          end
-
-          # verify downloaded content size
-          if response.content_length == record['s3']['object']['size'] then
-            body = response.body
-            # if necessary unzip
-            if response.content_encoding == "gzip" or record['s3']['object']['key'].end_with?(".gz") then
-              @logger.debug("Ohhh i´ll try to unzip")
-	      begin
-		            temp = Zlib::GzipReader.new(body)
-              rescue => e
-                @logger.warn("content is marked to be gzipped but can't unzip it, assuming plain text", :bucket => bucket, :object => key, :error => e)
-                temp = body
-              end
-              body = temp
-            end
-            # process the plain text content
+            # try download and :skip_delete if it fails
             begin
-              lines = body.read.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370").split(/\n/)
-              lines.each do |line|
-                @logger.debug("Decorating the event")
-		  @codec.decode(line) do |event|
+              response = @s3.get_object(
+                bucket: bucket,
+                key: key,
+              )
+            rescue => e
+              @logger.warn("issuing :skip_delete on failed download", :bucket => bucket, :object => key, :error => e)
+              throw :skip_delete
+            end
+
+            # verify downloaded content size
+            if response.content_length == record['s3']['object']['size'] then
+              body = response.body
+              # if necessary unzip
+              if response.content_encoding == "gzip" or record['s3']['object']['key'].end_with?(".gz") then
+                @logger.debug("Ohhh i´ll try to unzip")
+	              begin
+		              temp = Zlib::GzipReader.new(body)
+                  rescue => e
+                  @logger.warn("content is marked to be gzipped but can't unzip it, assuming plain text", :bucket => bucket, :object => key, :error => e)
+                  temp = body
+                end
+                body = temp
+              end
+              # process the plain text content
+              begin
+                lines = body.read.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370").split(/\n/)
+                lines.each do |line|
+                  @logger.debug("Decorating the event")
+		              @codec.decode(line) do |event|
                   decorate(event)
 
                   event.set('[@metadata][s3_bucket_name]', record['s3']['bucket']['name'])
                   event.set('[@metadata][s3_object_key]', record['s3']['object']['key'])
 
                   queue << event
+                  end
                 end
+              rescue => e
+                @logger.warn("issuing :skip_delete on failed plain text processing", :bucket => bucket, :object => key, :error => e)
+                throw :skip_delete
               end
-            rescue => e
-              @logger.warn("issuing :skip_delete on failed plain text processing", :bucket => bucket, :object => key, :error => e)
+
+              # Delete the files from S3
+              begin
+                @s3.delete_object(bucket: bucket, key: key) if @delete_on_success
+              rescue => e
+                @logger.warn("Failed to delete S3 object", :bucket => bucket, :object => key, :error => e)
+              end
+            # otherwise try again later
+            else
+              @logger.warn("issuing :skip_delete on wrong download content size", :bucket => bucket, :object => key,
+                :download_size => response.content_length, :expected => record['s3']['object']['size'])
               throw :skip_delete
             end
-
-            # Delete the files from S3
-            begin
-              @s3.delete_object(bucket: bucket, key: key) if @delete_on_success
-            rescue => e
-              @logger.warn("Failed to delete S3 object", :bucket => bucket, :object => key, :error => e)
-            end
-          # otherwise try again later
-          else
-            @logger.warn("issuing :skip_delete on wrong download content size", :bucket => bucket, :object => key,
-              :download_size => response.content_length, :expected => record['s3']['object']['size'])
-            throw :skip_delete
           end
         end
       end
