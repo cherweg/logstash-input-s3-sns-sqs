@@ -90,6 +90,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
+  config :s3_key_prefix, :validate => :string, :default => ''
   config :queue_owner_aws_account_id, :validate => :string, :required => false
   # Whether to delete files from S3 after processing.
   config :delete_on_success, :validate => :boolean, :default => false
@@ -98,6 +99,20 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   attr_reader :poller
   attr_reader :s3
+
+  def suggest_codec(content_type, key)
+    require "logstash/codecs/plain"
+    require "logstash/codecs/line"
+    require "logstash/codecs/json"
+    require "logstash/codecs/json_lines"
+    if content_type == "application/json_lines" then
+        @logger.info("Automatically switching from #{@codec.class.config_name} to json_lines codec", :plugin => self.class.config_name)
+        @codec = LogStash::Codecs::JSONLines.new("charset" => @codec.charset)
+    elsif content_type == "application/json" or key.end_with?(".json") then
+        @logger.info("Automatically switching from #{@codec.class.config_name} to json codec", :plugin => self.class.config_name)
+        @codec = LogStash::Codecs::JSON.new("charset" => @codec.charset)
+    end
+  end
 
   def register
     require "aws-sdk"
@@ -149,6 +164,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 	          bucket = CGI.unescape(record['s3']['bucket']['name'])
 	          key    = CGI.unescape(record['s3']['object']['key'])
 
+
             # try download and :skip_delete if it fails
             begin
               response = @s3.get_object(
@@ -174,6 +190,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
                 end
                 body = temp
               end
+              # Make a suggestion for a good codec
+              suggest_codec(response.content_type,record['s3']['object']['key'])
               # process the plain text content
               begin
                 lines = body.read.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370").split(/\n/)
@@ -184,7 +202,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
                   event.set('[@metadata][s3_bucket_name]', record['s3']['bucket']['name'])
                   event.set('[@metadata][s3_object_key]', record['s3']['object']['key'])
-
+                  if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
+                    event.set('[@metadata][s3_object_folder]', match['type_folder'])
+                  end
                   queue << event
                   end
                 end
@@ -208,7 +228,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           end
         end
       end
-    end
   end
 
   def run(queue)

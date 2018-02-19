@@ -1,3 +1,9 @@
+## 1.2.0
+- Add codec suggestion by content-type
+- enrich metadata 
+- Fix some bugs
+## 1.1.9
+- Add config for s3 folder prefix, auto codec and auto type
 ## 1.1.8
 - Add config switch for delivery with or without SNS
 ## 1.1.6
