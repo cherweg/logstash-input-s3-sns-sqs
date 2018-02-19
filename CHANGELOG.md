@@ -1,3 +1,7 @@
+## 1.1.8
+- Add config switch for delivery with or without SNS
+## 1.1.6
+- Fix a nil exception in message parsing
 ## 1.1.5
 - Fix loglevel for some debug messages
 ## 1.1.4

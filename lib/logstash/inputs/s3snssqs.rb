@@ -93,6 +93,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :queue_owner_aws_account_id, :validate => :string, :required => false
   # Whether to delete files from S3 after processing.
   config :delete_on_success, :validate => :boolean, :default => false
+  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
+  config :from_sns, :validate => :boolean, :default => true
 
   attr_reader :poller
   attr_reader :s3
@@ -129,14 +131,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   def handle_message(message, queue)
     hash = JSON.parse message.body
     @logger.debug("handle_message", :hash => hash, :message => message)
+    #If send via sns there is an additional JSON layer
+    if @from_sns then
+      hash = JSON.parse(hash['Message'])
+    end
     # there may be test events sent from the s3 bucket which won't contain a Records array,
     # we will skip those events and remove them from queue
-    if hash['Message'].present?
-      message = JSON.parse(hash['Message'])
-      if message['Records'] then
+      if hash['Records'] then
 	      # typically there will be only 1 record per event, but since it is an array we will
         # treat it as if there could be more records
-        message['Records'].each do |record|
+        hash['Records'].each do |record|
           @logger.debug("We found a record", :record => record)
 	        # in case there are any events with Records that aren't s3 object-created events and can't therefore be
           # processed by this plugin, we will skip them and remove them from queue
