@@ -1,3 +1,7 @@
+## 1.4.0
+- Filehandling rewritten THX to logstash-input-s3 for inspiration
+- Improve performance of gzip decoding by 10x by using Java's Zlib
+- Added multithreading via config Use: consumer_threads in config
 ## 1.2.0
 - Add codec suggestion by content-type
 - enrich metadata 
