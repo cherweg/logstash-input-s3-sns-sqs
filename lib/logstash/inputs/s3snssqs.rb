@@ -295,7 +295,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       event.set("[@metadata][s3]", { "object_key" => key })
       event.set("[@metadata][s3]", { "bucket_name" => bucket })
       if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
-        event.set('[@metadata][s3]', {"s3_object_folder" => match['type_folder']})
+        event.set('[@metadata][s3]', {"object_folder" => match['type_folder']})
       end
     end
   end
@@ -392,7 +392,15 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   public
   def stop
-    @runner_threads.each { |c| c.wakeup }
+    @runner_threads.each do |c|
+      begin
+        @logger.info("Stopping thread ... ", :thread => c.inspect)
+        c.wakeup
+      rescue
+        @logger.error("Cannot stop thread ... try to kill him", :thread => c.inspect)
+        c.kill
+      end
+    end
   end
 
   private

@@ -1,3 +1,5 @@
+## 1.4.2
+- Fix: Thread shutdown method should kill in case of wakeup fails
 ## 1.4.1
 - Fix: Last event in file not decorated
 - Adjust metadata namings
