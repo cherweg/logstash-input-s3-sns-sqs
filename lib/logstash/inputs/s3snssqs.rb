@@ -98,6 +98,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   default :codec, "plain"
 
+  # The message string to use in the event.
+  config :message, :validate => :string, :default => "Hello World!"
+
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
   config :s3_key_prefix, :validate => :string, :default => ''
@@ -203,7 +206,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     object = s3bucket.object(key)
     filename = File.join(temporary_directory, File.basename(key))
     if download_remote_file(object, filename)
-      if process_local_log( filename, key, instance_codec, queue)
+      if process_local_log( filename, key, instance_codec, queue, bucket)
         delete_file_from_bucket(object)
         FileUtils.remove_entry_secure(filename, true)
       end
@@ -237,10 +240,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # @param [Queue] Where to push the event
   # @param [String] Which file to read from
   # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, instance_codec, queue)
+  def process_local_log(filename, key, instance_codec, queue, bucket)
     @logger.debug('Processing file', :filename => filename)
     metadata = {}
-    i=1
     # Currently codecs operates on bytes instead of stream.
     # So all IO stuff: decompression, reading need to be done in the actual
     # input and send as bytes to the codecs.
@@ -262,36 +264,41 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # The line need to go through the codecs to replace
         # unknown bytes in the log stream before doing a regexp match or
         # you will get a `Error: invalid byte sequence in UTF-8'
-        #event = LogStash::Event.new("message" => @message)
-        if event_is_metadata?(event)
-          @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
-          update_metadata(metadata, event)
-        else
-
-          decorate(event)
-
-          event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
-          event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
-
-          event.set("[@metadata][s3]", { "key" => key })
-
-          if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
-            event.set('[@metadata][s3_object_folder]', match['type_folder'])
-          end
-          #@logger.info("queue event #{i}")
-          #i += 1
-          queue << event
-        end
+        local_decorate(event, key, metadata, bucket)
+        queue << event
       end
     end
+    @logger.debug("end if file #{filename}")
     #@logger.info("event pre flush", :event => event)
     # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
     instance_codec.flush do |event|
+      local_decorate(event, key, metadata, bucket)
+      @logger.debug("We´e to flush an incomplete event...", :event => event)
       queue << event
     end
 
     return true
   end # def process_local_log
+
+  private
+  def local_decorate(event, key, metadata, bucket)
+    if event_is_metadata?(event)
+      @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
+      update_metadata(metadata, event)
+    else
+
+      decorate(event)
+
+      event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
+      event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
+
+      event.set("[@metadata][s3]", { "object_key" => key })
+      event.set("[@metadata][s3]", { "bucket_name" => bucket })
+      if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
+        event.set('[@metadata][s3]', {"s3_object_folder" => match['type_folder']})
+      end
+    end
+  end
 
   private
   def read_file(filename, &block)

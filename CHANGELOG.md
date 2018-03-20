@@ -1,3 +1,7 @@
+## 1.4.1
+- Fix: Last event in file not decorated
+- Adjust metadata namings
+- Event decoration in private method now.
 ## 1.4.0
 - Filehandling rewritten THX to logstash-input-s3 for inspiration
 - Improve performance of gzip decoding by 10x by using Java's Zlib
