@@ -1,3 +1,8 @@
+## 1.4.3
+- Fix: skip_delete on S3::Errors::AccessDenied
+- Feature: codec per s3 folder
+- Feature: Alpha phase: different credentials for s3 / default credentials for sqs
+- Feature: Find files folder. 
 ## 1.4.2
 - Fix: Thread shutdown method should kill in case of wakeup fails
 ## 1.4.1

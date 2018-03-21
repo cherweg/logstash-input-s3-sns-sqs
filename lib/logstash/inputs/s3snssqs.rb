@@ -104,8 +104,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
   config :s3_key_prefix, :validate => :string, :default => ''
+  #Sometimes you need another key for s3. This is a first test...
+  config :s3_access_key_id, :validate => :string
+  config :s3_secret_access_key, :validate => :string
   config :queue_owner_aws_account_id, :validate => :string, :required => false
-  # Whether to delete files from S3 after processing.
+  #If you have different file-types in you s3 bucket, you could define codec by folder
+  #set_codec_by_folder => {"My-ELB-logs" => "plain"}
+  config :set_codec_by_folder, :validate => :hash, :default => {}
   config :delete_on_success, :validate => :boolean, :default => false
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
@@ -117,18 +122,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   attr_reader :poller
   attr_reader :s3
 
-  def suggest_codec(content_type, key)
-    require "logstash/codecs/plain"
-    require "logstash/codecs/line"
-    require "logstash/codecs/json"
-    require "logstash/codecs/json_lines"
-    if content_type == "application/json_lines" then
-      @logger.info("Automatically switching from #{@codec.class.config_name} to json_lines codec", :plugin => self.class.config_name)
-      @codec = LogStash::Codecs::JSONLines.new("charset" => @codec.charset)
-    elsif content_type == "application/json" or key.end_with?(".json") then
-      @logger.info("Automatically switching from #{@codec.class.config_name} to json codec", :plugin => self.class.config_name)
-      @codec = LogStash::Codecs::JSON.new("charset" => @codec.charset)
-    end
+
+  def set_codec (folder)
+    @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
+    LogStash::Plugin.lookup("codec", "#{set_codec_by_folder[folder]}").new("charset" => @codec.charset)
   end
 
   public
@@ -145,14 +142,22 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end
 
   def setup_queue
-    aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
-    queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
-    @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
-    @s3_client = Aws::S3::Client.new(aws_options_hash)
-    @s3_resource = get_s3object
-  rescue Aws::SQS::Errors::ServiceError => e
-    @logger.error("Cannot establish connection to Amazon SQS", :error => e)
-    raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
+    begin
+      aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
+      queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
+      @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
+      if s3_access_key_id and s3_secret_access_key
+        @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
+        @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
+      else
+        @s3_client = Aws::S3::Client.new(aws_options_hash)
+      end
+
+      @s3_resource = get_s3object
+    rescue Aws::SQS::Errors::ServiceError => e
+      @logger.error("Cannot establish connection to Amazon SQS", :error => e)
+      raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
+    end
   end
 
   def polling_options
@@ -187,10 +192,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           @logger.debug("It is a valid record")
           bucket = CGI.unescape(record['s3']['bucket']['name'])
           key    = CGI.unescape(record['s3']['object']['key'])
-
+          type_folder = get_object_folder(key)
+          # Set input codec by :set_codec_by_folder
+          begin
+            instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
+          rescue
+            @logger.error("Failed to set_codec with error", :error => e)
+          end
           # try download and :skip_delete if it fails
           #if record['s3']['object']['size'] < 10000000 then
-          process_log(bucket, key, instance_codec, queue)
+          process_log(bucket, key, type_folder, instance_codec, queue)
           #else
           #  @logger.info("Your file is too big")
           #end
@@ -200,13 +211,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end
 
   private
-  def process_log(bucket , key, instance_codec, queue)
+  def process_log(bucket , key, folder, instance_codec, queue)
     s3bucket = @s3_resource.bucket(bucket)
     @logger.debug("Lets go reading file", :bucket => bucket, :key => key)
     object = s3bucket.object(key)
     filename = File.join(temporary_directory, File.basename(key))
     if download_remote_file(object, filename)
-      if process_local_log( filename, key, instance_codec, queue, bucket)
+      if process_local_log( filename, key, folder, instance_codec, queue, bucket)
         delete_file_from_bucket(object)
         FileUtils.remove_entry_secure(filename, true)
       end
@@ -226,7 +237,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @logger.debug("S3 input: Download remote file", :remote_key => remote_object.key, :local_filename => local_filename)
     File.open(local_filename, 'wb') do |s3file|
       return completed if stop?
-      remote_object.get(:response_target => s3file)
+      begin
+        remote_object.get(:response_target => s3file)
+      rescue Aws::S3::Errors::AccessDenied => e
+        @logger.debug("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
+        throw :skip_delete
+      end
     end
     completed = true
 
@@ -240,7 +256,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # @param [Queue] Where to push the event
   # @param [String] Which file to read from
   # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, instance_codec, queue, bucket)
+  def process_local_log(filename, key, folder, instance_codec, queue, bucket)
     @logger.debug('Processing file', :filename => filename)
     metadata = {}
     # Currently codecs operates on bytes instead of stream.
@@ -264,7 +280,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # The line need to go through the codecs to replace
         # unknown bytes in the log stream before doing a regexp match or
         # you will get a `Error: invalid byte sequence in UTF-8'
-        local_decorate(event, key, metadata, bucket)
+        local_decorate(event, key, folder, metadata, bucket)
         queue << event
       end
     end
@@ -272,7 +288,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     #@logger.info("event pre flush", :event => event)
     # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
     instance_codec.flush do |event|
-      local_decorate(event, key, metadata, bucket)
+      local_decorate(event, key, folder, metadata, bucket)
       @logger.debug("We´e to flush an incomplete event...", :event => event)
       queue << event
     end
@@ -281,7 +297,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end # def process_local_log
 
   private
-  def local_decorate(event, key, metadata, bucket)
+  def local_decorate(event, key, folder, metadata, bucket)
     if event_is_metadata?(event)
       @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
       update_metadata(metadata, event)
@@ -292,14 +308,21 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
       event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
 
-      event.set("[@metadata][s3]", { "object_key" => key })
-      event.set("[@metadata][s3]", { "bucket_name" => bucket })
-      if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
-        event.set('[@metadata][s3]', {"object_folder" => match['type_folder']})
-      end
+      event.set("[@metadata][s3]", { "object_key"    => key })
+      event.set("[@metadata][s3]", { "bucket_name"   => bucket })
+      event.set("[@metadata][s3]", { "object_folder" => folder})
     end
   end
 
+
+  private
+  def get_object_folder(key)
+    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
+      return match['type_folder']
+    else
+      return ""
+    end
+  end
   private
   def read_file(filename, &block)
     if gzip?(filename)
