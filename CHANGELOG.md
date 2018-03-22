@@ -1,3 +1,5 @@
+## 1.4.5
+- BugFix: undeclared var in rescue 
 ## 1.4.4
 - Feature: make set_codec_by_folder match as regex
   e.g.: set_codec_by_folder => { ".*-ELB-logs" => "plain"} 

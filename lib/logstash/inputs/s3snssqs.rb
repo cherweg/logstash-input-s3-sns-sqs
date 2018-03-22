@@ -124,8 +124,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
 
   def set_codec (folder)
-    @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
-    LogStash::Plugin.lookup("codec", "#{set_codec_by_folder[folder]}").new("charset" => @codec.charset)
+    begin
+      @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
+      LogStash::Plugin.lookup("codec", "#{set_codec_by_folder[folder]}").new("charset" => @codec.charset)
+    rescue Exception => e
+      @logger.error("Failed to set_codec with error", :error => e)
+    end
   end
 
   public
@@ -196,11 +200,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           key    = CGI.unescape(record['s3']['object']['key'])
           type_folder = get_object_folder(key)
           # Set input codec by :set_codec_by_folder
-          begin
-            instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
-          rescue
-            @logger.error("Failed to set_codec with error", :error => e)
-          end
+          instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
           # try download and :skip_delete if it fails
           #if record['s3']['object']['size'] < 10000000 then
           process_log(bucket, key, type_folder, instance_codec, queue)
