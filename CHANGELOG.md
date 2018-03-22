@@ -1,3 +1,6 @@
+## 1.4.4
+- Feature: make set_codec_by_folder match as regex
+  e.g.: set_codec_by_folder => { ".*-ELB-logs" => "plain"} 
 ## 1.4.3
 - Fix: skip_delete on S3::Errors::AccessDenied
 - Feature: codec per s3 folder

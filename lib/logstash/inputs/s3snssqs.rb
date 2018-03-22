@@ -135,6 +135,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     require "aws-sdk-resources"
 
     @runner_threads = []
+    #make this hash keys lookups match like regex
+    hash_key_is_regex(set_codec_by_folder)
     @logger.info("Registering SQS input", :queue => @queue)
     setup_queue
 
@@ -465,6 +467,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       sleep(next_sleep)
       next_sleep =  next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
       retry
+    end
+  end
+
+  private
+  def hash_key_is_regex(myhash)
+    myhash.default_proc = lambda do |hash, lookup|
+      hash.each_pair do |key, value|
+        return value if %r[#{key}] =~ lookup.to_s
+      end
+      return nil
     end
   end
 end # class
