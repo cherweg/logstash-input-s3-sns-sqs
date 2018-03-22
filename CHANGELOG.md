@@ -1,3 +1,6 @@
+## 1.4.6
+- BugFix: jRuby > 2 : No return from block
+- BugFix: No exit on gzip error
 ## 1.4.5
 - BugFix: undeclared var in rescue 
 ## 1.4.4

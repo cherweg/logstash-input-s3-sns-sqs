@@ -98,9 +98,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   default :codec, "plain"
 
-  # The message string to use in the event.
-  config :message, :validate => :string, :default => "Hello World!"
-
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
   config :s3_key_prefix, :validate => :string, :default => ''
@@ -148,22 +145,20 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end
 
   def setup_queue
-    begin
-      aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
-      queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
-      @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
-      if s3_access_key_id and s3_secret_access_key
-        @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
-        @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
-      else
-        @s3_client = Aws::S3::Client.new(aws_options_hash)
-      end
-
-      @s3_resource = get_s3object
-    rescue Aws::SQS::Errors::ServiceError => e
-      @logger.error("Cannot establish connection to Amazon SQS", :error => e)
-      raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
+    aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
+    queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
+    @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
+    if s3_access_key_id and s3_secret_access_key
+      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
+      @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
+    else
+      @s3_client = Aws::S3::Client.new(aws_options_hash)
     end
+
+    @s3_resource = get_s3object
+  rescue Aws::SQS::Errors::ServiceError => e
+    @logger.error("Cannot establish connection to Amazon SQS", :error => e)
+    raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
   end
 
   def polling_options
@@ -351,8 +346,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       block.call(line)
     end
   rescue ZipException => e
-    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename)
-    raise e
+    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, error => e)
   ensure
     buffered.close unless buffered.nil?
     decoder.close unless decoder.nil?
@@ -473,10 +467,14 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   private
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
+      result=nil
       hash.each_pair do |key, value|
-        return value if %r[#{key}] =~ lookup.to_s
+        if %r[#{key}] =~ lookup
+          result=value
+          break
+        end
       end
-      return nil
+      result
     end
   end
 end # class
