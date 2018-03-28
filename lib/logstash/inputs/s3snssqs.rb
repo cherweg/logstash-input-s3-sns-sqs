@@ -114,6 +114,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # To run in multiple threads use this
   config :consumer_threads, :validate => :number, :default => 1
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
+  # The AWS IAM Role to assume, if any.
+  # This is used to generate temporary credentials typically for cross-account access.
+  # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
+  config :s3_role_arn, :validate => :string
+  # Session name to use when assuming an IAM role
+  config :s3_role_session_name, :validate => :string, :default => "logstash"
 
 
   attr_reader :poller
@@ -148,13 +154,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
     queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
     @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
-    if s3_access_key_id and s3_secret_access_key
-      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
-      @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
-    else
-      @s3_client = Aws::S3::Client.new(aws_options_hash)
-    end
-
+    get_s3client
     @s3_resource = get_s3object
   rescue Aws::SQS::Errors::ServiceError => e
     @logger.error("Cannot establish connection to Amazon SQS", :error => e)
@@ -277,24 +277,22 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # The line need to go through the codecs to replace
         # unknown bytes in the log stream before doing a regexp match or
         # you will get a `Error: invalid byte sequence in UTF-8'
-        local_decorate(event, key, folder, metadata, bucket)
-        queue << event
+        local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
       end
     end
     @logger.debug("end if file #{filename}")
     #@logger.info("event pre flush", :event => event)
     # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
     instance_codec.flush do |event|
-      local_decorate(event, key, folder, metadata, bucket)
+      local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
       @logger.debug("We´e to flush an incomplete event...", :event => event)
-      queue << event
     end
 
     return true
   end # def process_local_log
 
   private
-  def local_decorate(event, key, folder, metadata, bucket)
+  def local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
     if event_is_metadata?(event)
       @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
       update_metadata(metadata, event)
@@ -308,6 +306,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       event.set("[@metadata][s3]", { "object_key"    => key })
       event.set("[@metadata][s3]", { "bucket_name"   => bucket })
       event.set("[@metadata][s3]", { "object_folder" => folder})
+      queue << event
     end
   end
 
@@ -367,9 +366,32 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
+
+  private
+  def get_s3client
+    if s3_access_key_id and s3_secret_access_key
+      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id) )
+      @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
+    elsif @s3_role_arn
+      @s3_client = Aws::S3::Client.new(aws_options_hash.merge!({ :credentials => s3_assume_role }))
+      @logger.debug("Using S3 Credentials from role", :s3client => @s3_client.inspect, :options => aws_options_hash.merge!({ :credentials => s3_assume_role }))
+    else
+      @s3_client = Aws::S3::Client.new(aws_options_hash)
+    end
+  end
+
   private
   def get_s3object
     s3 = Aws::S3::Resource.new(client: @s3_client)
+  end
+
+  private
+  def s3_assume_role()
+    Aws::AssumeRoleCredentials.new(
+        client: Aws::STS::Client.new(region: @region),
+        role_arn: @s3_role_arn,
+        role_session_name: @s3_role_session_name
+    )
   end
 
   private

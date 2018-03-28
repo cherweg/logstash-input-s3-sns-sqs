@@ -1,3 +1,8 @@
+## 1.4.8
+- Bufix: CF Metadata events Bug #7
+- Feature: use aws-role for s3 client connection.
+## 1.4.7
+Remove from rubygems.org
 ## 1.4.6
 - BugFix: jRuby > 2 : No return from block
 - BugFix: No exit on gzip error
