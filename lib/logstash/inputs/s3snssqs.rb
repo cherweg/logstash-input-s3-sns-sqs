@@ -8,6 +8,7 @@ require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
 require 'cgi'
+require 'logstash/inputs/mime/mimemagic'
 
 require 'java'
 java_import java.io.InputStream
@@ -237,7 +238,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       begin
         remote_object.get(:response_target => s3file)
       rescue Aws::S3::Errors::AccessDenied => e
-        @logger.debug("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
+        @logger.error("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
         throw :skip_delete
       end
     end
@@ -264,10 +265,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         @logger.warn("Logstash S3 input, stop reading in the middle of the file, we will read it again when logstash is started")
         return false
       end
-      #@logger.info("read line #{i}", :line => line)
       #line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
+      #@logger.debug("read line", :line => line)
       instance_codec.decode(line) do |event|
-        #@logger.info("decorate event")
+        @logger.debug("decorate event")
         # We are making an assumption concerning cloudfront
         # log format, the user will use the plain or the line codec
         # and the message key will represent the actual line content.
@@ -293,6 +294,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   private
   def local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
+    @logger.debug('decorating event', :event => event.to_s)
     if event_is_metadata?(event)
       @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
       update_metadata(metadata, event)
@@ -306,6 +308,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       event.set("[@metadata][s3]", { "object_key"    => key })
       event.set("[@metadata][s3]", { "bucket_name"   => bucket })
       event.set("[@metadata][s3]", { "object_folder" => folder})
+      #@logger.debug('queuing event', :event => event.to_s)
       queue << event
     end
   end
@@ -319,6 +322,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       return ""
     end
   end
+
   private
   def read_file(filename, &block)
     if gzip?(filename)
@@ -355,9 +359,11 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   private
   def gzip?(filename)
-    filename.end_with?('.gz','.gzip')
+    return true if filename.end_with?('.gz','.gzip')
+    return true if MimeMagic.by_magic(File.open(filename)).to_s == 'application/gzip'
+  rescue Exception => e
+    @logger.debug("Problem while gzip detection", :error => e)
   end
-
 
   private
   def delete_file_from_bucket(object)
@@ -370,7 +376,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   private
   def get_s3client
     if s3_access_key_id and s3_secret_access_key
-      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id) )
+      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
       @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
     elsif @s3_role_arn
       @s3_client = Aws::S3::Client.new(aws_options_hash.merge!({ :credentials => s3_assume_role }))

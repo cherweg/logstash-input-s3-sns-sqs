@@ -1,3 +1,5 @@
+## 1.4.9
+- Feature: Detect filetype with MagicByte 
 ## 1.4.8
 - Bufix: CF Metadata events Bug #7
 - Feature: use aws-role for s3 client connection.
