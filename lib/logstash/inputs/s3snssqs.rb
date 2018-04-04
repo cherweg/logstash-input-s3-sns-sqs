@@ -8,7 +8,7 @@ require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
 require 'cgi'
-require 'logstash/inputs/mime/mimemagic'
+require 'logstash/inputs/mime/MagicgzipValidator'
 
 require 'java'
 java_import java.io.InputStream
@@ -360,7 +360,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   private
   def gzip?(filename)
     return true if filename.end_with?('.gz','.gzip')
-    return true if MimeMagic.by_magic(File.open(filename)).to_s == 'application/gzip'
+    MagicGzipValidator.new(File.new(filename, 'r')).valid?
   rescue Exception => e
     @logger.debug("Problem while gzip detection", :error => e)
   end
