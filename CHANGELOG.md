@@ -1,3 +1,5 @@
+## 1.5.0
+- Feature: Use own magicbyte detector (small&fast)
 ## 1.4.9
 - Feature: Detect filetype with MagicByte 
 ## 1.4.8
