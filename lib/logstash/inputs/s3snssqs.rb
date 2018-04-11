@@ -237,7 +237,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       return completed if stop?
       begin
         remote_object.get(:response_target => s3file)
-      rescue Aws::S3::Errors::AccessDenied => e
+      rescue Aws::S3::Errors::ServiceError => e
         @logger.error("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
         throw :skip_delete
       end

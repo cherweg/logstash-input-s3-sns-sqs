@@ -1,3 +1,5 @@
+## 1.5.1
+- BugFix: rescue all AWS::S3 errors
 ## 1.5.0
 - Feature: Use own magicbyte detector (small&fast)
 ## 1.4.9
