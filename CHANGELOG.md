@@ -1,3 +1,6 @@
+## 1.5.2
+- BugFix Set Metadata bucket,key,folder
+- Feature: Possibility to fall back to old threadding model by unset consumer_threads
 ## 1.5.1
 - BugFix: rescue all AWS::S3 errors
 ## 1.5.0

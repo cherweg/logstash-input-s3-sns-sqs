@@ -113,7 +113,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   # To run in multiple threads use this
-  config :consumer_threads, :validate => :number, :default => 1
+  config :consumer_threads, :validate => :number
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
   # The AWS IAM Role to assume, if any.
   # This is used to generate temporary credentials typically for cross-account access.
@@ -305,10 +305,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
       event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
 
-      event.set("[@metadata][s3]", { "object_key"    => key })
-      event.set("[@metadata][s3]", { "bucket_name"   => bucket })
-      event.set("[@metadata][s3]", { "object_folder" => folder})
-      #@logger.debug('queuing event', :event => event.to_s)
+      event.set("[@metadata][s3][object_key]", key)
+      event.set("[@metadata][s3][bucket_name]", bucket)
+      event.set("[@metadata][s3][object_folder]", folder)
+      @logger.debug('add metadata', :object_key => key, :bucket => bucket, :folder => folder)
       queue << event
     end
   end
@@ -432,21 +432,43 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   public
   def run(queue)
-    # ensure we can stop logstash correctly
-    @runner_threads = consumer_threads.times.map { |consumer| thread_runner(queue) }
-    @runner_threads.each { |t| t.join }
+    if @consumer_threads
+      # ensure we can stop logstash correctly
+      @runner_threads = consumer_threads.times.map { |consumer| thread_runner(queue) }
+      @runner_threads.each { |t| t.join }
+    else
+      #Fallback to simple single thread worker
+      # ensure we can stop logstash correctly
+      poller.before_request do |stats|
+        if stop? then
+          @logger.warn("issuing :stop_polling on stop?", :queue => @queue)
+          # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
+          throw :stop_polling
+        end
+      end
+      # poll a message and process it
+      run_with_backoff do
+        poller.poll(polling_options) do |message|
+          handle_message(message, queue, @codec.clone)
+        end
+      end
+    end
   end
 
   public
   def stop
-    @runner_threads.each do |c|
-      begin
-        @logger.info("Stopping thread ... ", :thread => c.inspect)
-        c.wakeup
-      rescue
-        @logger.error("Cannot stop thread ... try to kill him", :thread => c.inspect)
-        c.kill
+    if @consumer_threads
+      @runner_threads.each do |c|
+        begin
+          @logger.info("Stopping thread ... ", :thread => c.inspect)
+          c.wakeup
+        rescue
+          @logger.error("Cannot stop thread ... try to kill him", :thread => c.inspect)
+          c.kill
+        end
       end
+    else
+      @logger.warn("Stopping all threads?", :queue => @queue)
     end
   end
 
