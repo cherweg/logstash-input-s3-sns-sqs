@@ -1,3 +1,5 @@
+##1.5.6
+-BugFix
 ##1.5.5
 - Memo to me: better testing :-) Fix msg -> message
 ##1.5.4

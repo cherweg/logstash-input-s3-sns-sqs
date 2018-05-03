@@ -203,7 +203,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
           # try download and :skip_delete if it fails
           #if record['s3']['object']['size'] < 10000000 then
-          process_log(bucket, key, type_folder, instance_codec, queue)
+          process_log(bucket, key, type_folder, instance_codec, queue, message)
           #else
           #  @logger.info("Your file is too big")
           #end
@@ -213,13 +213,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end
 
   private
-  def process_log(bucket , key, folder, instance_codec, queue)
+  def process_log(bucket , key, folder, instance_codec, queue, message)
     s3bucket = @s3_resource.bucket(bucket)
     @logger.debug("Lets go reading file", :bucket => bucket, :key => key)
     object = s3bucket.object(key)
     filename = File.join(temporary_directory, File.basename(key))
     if download_remote_file(object, filename)
-      if process_local_log( filename, key, folder, instance_codec, queue, bucket)
+      if process_local_log( filename, key, folder, instance_codec, queue, bucket, message)
         begin
           FileUtils.remove_entry_secure(filename, true)
           delete_file_from_bucket(object)
@@ -228,11 +228,11 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         end
       end
     else
-        begin
-          FileUtils.remove_entry_secure(filename, true)
-        rescue Exception => e
-          @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
-        end
+      begin
+        FileUtils.remove_entry_secure(filename, true)
+      rescue Exception => e
+        @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
+      end
     end
   end
 
@@ -266,18 +266,24 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # @param [Queue] Where to push the event
   # @param [String] Which file to read from
   # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, folder, instance_codec, queue, bucket)
-    @logger.debug('Processing file', :filename => filename)
+  def process_local_log(filename, key, folder, instance_codec, queue, bucket, message)
+    @logger.info('Processing file', :filename => filename)
     metadata = {}
+    start_time = Time.now
     # Currently codecs operates on bytes instead of stream.
     # So all IO stuff: decompression, reading need to be done in the actual
     # input and send as bytes to the codecs.
     read_file(filename) do |line|
+      if (Time.now - start_time) >= (@visibility_timeout.to_f / 100.0 * 90.to_f)
+        @logger.info("Increasing the visibility_timeout ... ", :timeout => @visibility_timeout, :filename => filename )
+        poller.change_message_visibility_timeout(message, @visibility_timeout)
+        start_time = Time.now
+      end
       if stop?
         @logger.warn("Logstash S3 input, stop reading in the middle of the file, we will read it again when logstash is started")
         return false
       end
-      #line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
+      line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
       #@logger.debug("read line", :line => line)
       instance_codec.decode(line) do |event|
         @logger.debug("decorate event")
@@ -462,10 +468,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       run_with_backoff do
         poller.poll(polling_options) do |message|
           begin
-            Stud.interval(@visibility_timeout - 10 ) do
-              @logger.info("Increasing the visibility_timeout ... ")
-              poller.change_message_visibility_timeout(message, 60)
-            end
             handle_message(message, queue, @codec.clone)
             poller.delete_message(message)
           rescue Exception => e
@@ -509,10 +511,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         run_with_backoff do
           poller.poll(polling_options) do |message|
             begin
-              Stud.interval(@visibility_timeout - 10 ) do
-                @logger.info("Increasing the visibility_timeout ... ")
-                poller.change_message_visibility_timeout(msg, 60)
-              end
               handle_message(message, queue, @codec.clone)
               poller.delete_message(message)
             rescue Exception => e
