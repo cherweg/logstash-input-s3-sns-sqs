@@ -267,7 +267,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # @param [String] Which file to read from
   # @return [Boolean] True if the file was completely read, false otherwise.
   def process_local_log(filename, key, folder, instance_codec, queue, bucket, message)
-    @logger.info('Processing file', :filename => filename)
+    @logger.debug('Processing file', :filename => filename)
     metadata = {}
     start_time = Time.now
     # Currently codecs operates on bytes instead of stream.
