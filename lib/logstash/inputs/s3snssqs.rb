@@ -7,6 +7,7 @@ require "logstash/plugin_mixins/aws_config"
 require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
+require "stud/interval"
 require 'cgi'
 require 'logstash/inputs/mime/MagicgzipValidator'
 
@@ -121,6 +122,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :s3_role_arn, :validate => :string
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
+  config :visibility_timeout, :validate => :number, :default => 600
 
 
   attr_reader :poller
@@ -170,6 +172,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         :max_number_of_messages => 1,
         # we will use the queue's setting, a good value is 10 seconds
         # (to ensure fast logstash shutdown on the one hand and few api calls on the other hand)
+        :skip_delete => false,
+        :visibility_timeout => @visibility_timeout,
         :wait_time_seconds => nil,
     }
   end
@@ -216,11 +220,19 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     filename = File.join(temporary_directory, File.basename(key))
     if download_remote_file(object, filename)
       if process_local_log( filename, key, folder, instance_codec, queue, bucket)
-        delete_file_from_bucket(object)
-        FileUtils.remove_entry_secure(filename, true)
+        begin
+          FileUtils.remove_entry_secure(filename, true)
+          delete_file_from_bucket(object)
+        rescue Exception => e
+          @logger.debug("We had problems to delete your file", :file => filename, :error => e)
+        end
       end
     else
-      FileUtils.remove_entry_secure(filename, true)
+        begin
+          FileUtils.remove_entry_secure(filename, true)
+        rescue Exception => e
+          @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
+        end
     end
   end
 
@@ -449,7 +461,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       # poll a message and process it
       run_with_backoff do
         poller.poll(polling_options) do |message|
-          handle_message(message, queue, @codec.clone)
+          begin
+            Stud.interval(@visibility_timeout - 10 ) do
+              @logger.info("Increasing the visibility_timeout ... ")
+              poller.change_message_visibility_timeout(msg, 60)
+            end
+            handle_message(message, queue, @codec.clone)
+            poller.delete_message(message)
+          rescue Exception => e
+            @logger.info("Error in poller block ... ", :error => e)
+          end
         end
       end
     end
@@ -487,7 +508,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # poll a message and process it
         run_with_backoff do
           poller.poll(polling_options) do |message|
-            handle_message(message, queue, @codec.clone)
+            begin
+              Stud.interval(@visibility_timeout - 10 ) do
+                @logger.info("Increasing the visibility_timeout ... ")
+                poller.change_message_visibility_timeout(msg, 60)
+              end
+              handle_message(message, queue, @codec.clone)
+              poller.delete_message(message)
+            rescue Exception => e
+              @logger.info("Error in poller block ... ", :error => e)
+            end
           end
         end
       end

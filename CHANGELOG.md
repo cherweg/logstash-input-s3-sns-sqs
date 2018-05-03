@@ -1,3 +1,7 @@
+##1.5.4
+- BugFix
+##1.5.3
+- Try to fix requeue Problem
 ## 1.5.2
 - BugFix Set Metadata bucket,key,folder
 - Feature: Possibility to fall back to old threadding model by unset consumer_threads

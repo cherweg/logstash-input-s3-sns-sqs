@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (1.5.1)
+    logstash-input-s3-sns-sqs (1.5.3)
       logstash-codec-json
       logstash-core-plugin-api (>= 2.1.12, <= 2.99)
       logstash-mixin-aws
@@ -86,8 +86,8 @@ GEM
       rspec (~> 3.0)
       rspec-wait
       stud (>= 0.0.20)
-    logstash-mixin-aws (4.2.4)
-      aws-sdk (~> 2.3.0)
+    logstash-mixin-aws (4.3.0)
+      aws-sdk (~> 2)
       aws-sdk-v1 (>= 1.61.0)
       logstash-codec-plain
       logstash-core-plugin-api (>= 1.60, <= 2.99)
