@@ -464,7 +464,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           begin
             Stud.interval(@visibility_timeout - 10 ) do
               @logger.info("Increasing the visibility_timeout ... ")
-              poller.change_message_visibility_timeout(msg, 60)
+              poller.change_message_visibility_timeout(message, 60)
             end
             handle_message(message, queue, @codec.clone)
             poller.delete_message(message)
