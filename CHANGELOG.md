@@ -1,3 +1,5 @@
+##1.5.8
+- Add some debug and a toggle for delete
 ##1.5.7
 - Remove Debug poutput
 ##1.5.6

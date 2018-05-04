@@ -111,6 +111,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #set_codec_by_folder => {"My-ELB-logs" => "plain"}
   config :set_codec_by_folder, :validate => :hash, :default => {}
   config :delete_on_success, :validate => :boolean, :default => false
+  config :sqs_explicit_delete, :validate => :boolean, :default => false
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   # To run in multiple threads use this
@@ -198,12 +199,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           @logger.debug("It is a valid record")
           bucket = CGI.unescape(record['s3']['bucket']['name'])
           key    = CGI.unescape(record['s3']['object']['key'])
+          size   = record['s3']['object']['size']
           type_folder = get_object_folder(key)
           # Set input codec by :set_codec_by_folder
           instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
           # try download and :skip_delete if it fails
           #if record['s3']['object']['size'] < 10000000 then
-          process_log(bucket, key, type_folder, instance_codec, queue, message)
+          process_log(bucket, key, type_folder, instance_codec, queue, message, size)
           #else
           #  @logger.info("Your file is too big")
           #end
@@ -213,13 +215,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   end
 
   private
-  def process_log(bucket , key, folder, instance_codec, queue, message)
+  def process_log(bucket , key, folder, instance_codec, queue, message, size)
     s3bucket = @s3_resource.bucket(bucket)
     @logger.debug("Lets go reading file", :bucket => bucket, :key => key)
     object = s3bucket.object(key)
     filename = File.join(temporary_directory, File.basename(key))
     if download_remote_file(object, filename)
-      if process_local_log( filename, key, folder, instance_codec, queue, bucket, message)
+      if process_local_log( filename, key, folder, instance_codec, queue, bucket, message, size)
         begin
           FileUtils.remove_entry_secure(filename, true)
           delete_file_from_bucket(object)
@@ -266,7 +268,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # @param [Queue] Where to push the event
   # @param [String] Which file to read from
   # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, folder, instance_codec, queue, bucket, message)
+  def process_local_log(filename, key, folder, instance_codec, queue, bucket, message, size)
     @logger.debug('Processing file', :filename => filename)
     metadata = {}
     start_time = Time.now
@@ -275,7 +277,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # input and send as bytes to the codecs.
     read_file(filename) do |line|
       if (Time.now - start_time) >= (@visibility_timeout.to_f / 100.0 * 90.to_f)
-        @logger.info("Increasing the visibility_timeout ... ", :timeout => @visibility_timeout, :filename => filename )
+        @logger.info("Increasing the visibility_timeout ... ", :timeout => @visibility_timeout, :filename => filename, :filesize => size, :start => start_time )
         poller.change_message_visibility_timeout(message, @visibility_timeout)
         start_time = Time.now
       end
@@ -512,7 +514,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           poller.poll(polling_options) do |message|
             begin
               handle_message(message, queue, @codec.clone)
-              poller.delete_message(message)
+              poller.delete_message(message) if @sqs_explicit_delete
             rescue Exception => e
               @logger.info("Error in poller block ... ", :error => e)
             end
