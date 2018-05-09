@@ -1,3 +1,5 @@
+##1.5.9
+- Fix regex for type folder
 ##1.5.8
 - Add some debug and a toggle for delete
 ##1.5.7
