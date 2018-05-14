@@ -223,7 +223,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     if download_remote_file(object, filename)
       if process_local_log( filename, key, folder, instance_codec, queue, bucket, message, size)
         begin
-          FileUtils.remove_entry_secure(filename, true)
+          FileUtils.remove_entry_secure(filename, true) if File.exists? filename
           delete_file_from_bucket(object)
         rescue Exception => e
           @logger.debug("We had problems to delete your file", :file => filename, :error => e)
@@ -231,7 +231,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
     else
       begin
-        FileUtils.remove_entry_secure(filename, true)
+        FileUtils.remove_entry_secure(filename, true) if File.exists? filename
       rescue Exception => e
         @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
       end
@@ -336,7 +336,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   private
   def get_object_folder(key)
-    if match=/#{s3_key_prefix}\/?(?<type_folder>.+)\/.*/.match(key)
+    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
       return match['type_folder']
     else
       return ""

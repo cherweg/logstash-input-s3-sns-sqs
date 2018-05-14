@@ -1,3 +1,6 @@
+##1.6.0
+- add a test to tmp file deletion
+- revert type folder regex
 ##1.5.9
 - Fix regex for type folder
 ##1.5.8
