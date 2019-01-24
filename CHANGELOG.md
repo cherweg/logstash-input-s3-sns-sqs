@@ -1,3 +1,5 @@
+##1.6.1
+- Fix typo in gzip error logging
 ##1.6.0
 - add a test to tmp file deletion
 - revert type folder regex

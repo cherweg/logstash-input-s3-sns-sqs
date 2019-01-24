@@ -369,7 +369,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       block.call(line)
     end
   rescue ZipException => e
-    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, error => e)
+    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, :error => e)
   ensure
     buffered.close unless buffered.nil?
     decoder.close unless decoder.nil?
