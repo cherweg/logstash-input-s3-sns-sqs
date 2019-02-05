@@ -50,28 +50,7 @@ Example:
 ==== S3-SNS-SQS Input Configuration Options
 
 This plugin supports the following configuration options plus the <<plugins-{type}s-{plugin}-common-options>> described later.
-  config :s3_key_prefix, :validate => :string, :default => ''
-  #Sometimes you need another key for s3. This is a first test...
-  config :s3_access_key_id, :validate => :string
-  config :s3_secret_access_key, :validate => :string
-  config :queue_owner_aws_account_id, :validate => :string, :required => false
-  #If you have different file-types in you s3 bucket, you could define codec by folder
-  #set_codec_by_folder => {"My-ELB-logs" => "plain"}
-  config :set_codec_by_folder, :validate => :hash, :default => {}
-  config :delete_on_success, :validate => :boolean, :default => false
-  config :sqs_explicit_delete, :validate => :boolean, :default => false
-  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
-  config :from_sns, :validate => :boolean, :default => true
-  # To run in multiple threads use this
-  config :consumer_threads, :validate => :number
-  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
-  # The AWS IAM Role to assume, if any.
-  # This is used to generate temporary credentials typically for cross-account access.
-  # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
-  config :s3_role_arn, :validate => :string
-  # Session name to use when assuming an IAM role
-  config :s3_role_session_name, :validate => :string, :default => "logstash"
-config :visibility_timeout, :validate => :number, :default => 600
+
 [cols="<,<,<",options="header",]
 |=======================================================================
 |Setting |Input type|Required
