@@ -40,7 +40,7 @@ Example:
     input {
       s3snssqs {
         region                     => "eu-central-1"
-	      queue                      => "logingest-live-pa-logs"
+        queue                      => "logingest-live-pa-logs"
         set_codec_by_folder => {"My-ELB-logs" => "plain"}
       	consumer_threads           => 3
       	queue_owner_aws_account_id => "23130122323"
