@@ -23,7 +23,7 @@ Gem::Specification.new do |s|
 
   s.add_runtime_dependency 'logstash-codec-json'
   s.add_runtime_dependency "logstash-mixin-aws"
+  s.add_development_dependency 'logstash-codec-json_stream'
   s.add_development_dependency 'logstash-devutils'
-
 end
 

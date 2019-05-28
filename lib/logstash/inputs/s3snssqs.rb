@@ -107,6 +107,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :s3_access_key_id, :validate => :string
   config :s3_secret_access_key, :validate => :string
   config :queue_owner_aws_account_id, :validate => :string, :required => false
+  config :set_role_by_bucket, :validate => :hash, :default => {}
   #If you have different file-types in you s3 bucket, you could define codec by folder
   #set_codec_by_folder => {"My-ELB-logs" => "plain"}
   config :set_codec_by_folder, :validate => :hash, :default => {}
@@ -115,7 +116,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   # To run in multiple threads use this
-  config :consumer_threads, :validate => :number
+  config :consumer_threads, :validate => :number, :default => 1
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
   # The AWS IAM Role to assume, if any.
   # This is used to generate temporary credentials typically for cross-account access.
@@ -145,7 +146,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     require "digest/md5"
     require "aws-sdk-resources"
 
-    @runner_threads = []
+
     #make this hash keys lookups match like regex
     hash_key_is_regex(set_codec_by_folder)
     @logger.info("Registering SQS input", :queue => @queue)
@@ -154,30 +155,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
   end
 
-  def setup_queue
-    aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
-    queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
-    @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
-    get_s3client
-    @s3_resource = get_s3object
-  rescue Aws::SQS::Errors::ServiceError => e
-    @logger.error("Cannot establish connection to Amazon SQS", :error => e)
-    raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
-  end
+   # get_s3client
+   #@s3_resource = get_s3object
 
-  def polling_options
-    {
-        # we will query 1 message at a time, so we can ensure correct error handling if we can't download a single file correctly
-        # (we will throw :skip_delete if download size isn't correct to process the event again later
-        # -> set a reasonable "Default Visibility Timeout" for your queue, so that there's enough time to process the log files)
-        :max_number_of_messages => 1,
-        # we will use the queue's setting, a good value is 10 seconds
-        # (to ensure fast logstash shutdown on the one hand and few api calls on the other hand)
-        :skip_delete => false,
-        :visibility_timeout => @visibility_timeout,
-        :wait_time_seconds => nil,
-    }
-  end
+
 
   def handle_message(message, queue, instance_codec)
     hash = JSON.parse message.body
@@ -306,7 +287,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
     instance_codec.flush do |event|
       local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-      @logger.debug("We´e to flush an incomplete event...", :event => event)
+      @logger.debug("We are about to flush an incomplete event...", :event => event)
     end
 
     return true
@@ -452,32 +433,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   public
   def run(queue)
-    if @consumer_threads
-      # ensure we can stop logstash correctly
-      @runner_threads = consumer_threads.times.map { |consumer| thread_runner(queue) }
-      @runner_threads.each { |t| t.join }
-    else
-      #Fallback to simple single thread worker
-      # ensure we can stop logstash correctly
-      poller.before_request do |stats|
-        if stop? then
-          @logger.warn("issuing :stop_polling on stop?", :queue => @queue)
-          # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
-          throw :stop_polling
-        end
-      end
-      # poll a message and process it
-      run_with_backoff do
-        poller.poll(polling_options) do |message|
-          begin
-            handle_message(message, queue, @codec.clone)
-            poller.delete_message(message)
-          rescue Exception => e
-            @logger.info("Error in poller block ... ", :error => e)
-          end
-        end
-      end
-    end
+    poller.run(queue)
   end
 
   public
@@ -494,53 +450,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
     else
       @logger.warn("Stopping all threads?", :queue => @queue)
-    end
-  end
-
-  private
-  def thread_runner(queue)
-    Thread.new do
-      @logger.info("Starting new thread")
-      begin
-        poller.before_request do |stats|
-          if stop? then
-            @logger.warn("issuing :stop_polling on stop?", :queue => @queue)
-            # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
-            throw :stop_polling
-          end
-        end
-        # poll a message and process it
-        run_with_backoff do
-          poller.poll(polling_options) do |message|
-            begin
-              handle_message(message, queue, @codec.clone)
-              poller.delete_message(message) if @sqs_explicit_delete
-            rescue Exception => e
-              @logger.info("Error in poller block ... ", :error => e)
-            end
-          end
-        end
-      end
-    end
-  end
-
-  private
-  # Runs an AWS request inside a Ruby block with an exponential backoff in case
-  # we experience a ServiceError.
-  #
-  # @param [Integer] max_time maximum amount of time to sleep before giving up.
-  # @param [Integer] sleep_time the initial amount of time to sleep before retrying.
-  # @param [Block] block Ruby code block to execute.
-  def run_with_backoff(max_time = MAX_TIME_BEFORE_GIVING_UP, sleep_time = BACKOFF_SLEEP_TIME, &block)
-    next_sleep = sleep_time
-    begin
-      block.call
-      next_sleep = sleep_time
-    rescue Aws::SQS::Errors::ServiceError => e
-      @logger.warn("Aws::SQS::Errors::ServiceError ... retrying SQS request with exponential backoff", :queue => @queue, :sleep_time => sleep_time, :error => e)
-      sleep(next_sleep)
-      next_sleep =  next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
-      retry
     end
   end
 

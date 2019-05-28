@@ -1,0 +1,2 @@
+class StreamDownloader
+end
