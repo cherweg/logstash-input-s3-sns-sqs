@@ -1,5 +1,4 @@
 # encoding: utf-8
-#
 require "logstash/inputs/threadable"
 require "logstash/namespace"
 require "logstash/timestamp"
@@ -7,9 +6,14 @@ require "logstash/plugin_mixins/aws_config"
 require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
-require "stud/interval"
-require 'cgi'
+# "object-oriented interfaces on top of API clients"...
+# => Overhead. FIXME: needed?
+require "aws-sdk-resources"
 require 'logstash/inputs/mime/MagicgzipValidator'
+require "fileutils"
+# unused in code:
+#require "stud/interval"
+#require "digest/md5"
 
 require 'java'
 java_import java.io.InputStream
@@ -18,6 +22,12 @@ java_import java.io.FileInputStream
 java_import java.io.BufferedReader
 java_import java.util.zip.GZIPInputStream
 java_import java.util.zip.ZipException
+
+# our helper classes
+# these may go into this file for brevity...
+require_relative 'sqs/poller'
+require_relative 's3/client_factory'
+require_relative 'log_processor'
 
 Aws.eager_autoload!
 
@@ -90,47 +100,72 @@ Aws.eager_autoload!
 class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
 
-  BACKOFF_SLEEP_TIME = 1
-  BACKOFF_FACTOR = 2
-  MAX_TIME_BEFORE_GIVING_UP = 60
-  EVENT_SOURCE = 'aws:s3'
-  EVENT_TYPE = 'ObjectCreated'
-
   config_name "s3snssqs"
 
   default :codec, "plain"
 
-  # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
-  config :queue, :validate => :string, :required => true
+  # FIXME: needed per bucket in the future!
+  # Future config might look somewhat like this:
+  #
+  # buckets {
+  #   "bucket1_name": {
+  #     "credentials": { "role": "aws:role:arn:for:bucket:access" },
+  #     "folders": [
+  #       {
+  #         "prefix:": "key1",
+  #         "codec": "some-codec"
+  #       },
+  #       {
+  #         "prefix": "key2",
+  #         "codec": "some-other-codec"
+  #       }
+  #     ]
+  #   },
+  #   "bucket2_name": {
+  #     "credentials": {
+  #        "access_key_id": "some-id",
+  #        "secret_access_key": "some-secret-key"
+  #     },
+  #     "folders": [
+  #       {
+  #         "prefix": ""
+  #       }
+  #     ]
+  #   }
+  # }
+  #
+  ### s3 -> TODO: replace by options for multiple buckets
   config :s3_key_prefix, :validate => :string, :default => ''
   #Sometimes you need another key for s3. This is a first test...
   config :s3_access_key_id, :validate => :string
   config :s3_secret_access_key, :validate => :string
-  config :queue_owner_aws_account_id, :validate => :string, :required => false
   config :set_role_by_bucket, :validate => :hash, :default => {}
   #If you have different file-types in you s3 bucket, you could define codec by folder
   #set_codec_by_folder => {"My-ELB-logs" => "plain"}
   config :set_codec_by_folder, :validate => :hash, :default => {}
-  config :delete_on_success, :validate => :boolean, :default => false
-  config :sqs_explicit_delete, :validate => :boolean, :default => false
-  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
-  config :from_sns, :validate => :boolean, :default => true
-  # To run in multiple threads use this
-  config :consumer_threads, :validate => :number, :default => 1
-  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
   # The AWS IAM Role to assume, if any.
   # This is used to generate temporary credentials typically for cross-account access.
   # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
   config :s3_role_arn, :validate => :string
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
+
+  ### sqs
+  # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
+  config :queue, :validate => :string, :required => true
+  config :queue_owner_aws_account_id, :validate => :string, :required => false
+  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
+  config :from_sns, :validate => :boolean, :default => true
+  config :sqs_explicit_delete, :validate => :boolean, :default => false
+  config :delete_on_success, :validate => :boolean, :default => false
   config :visibility_timeout, :validate => :number, :default => 600
 
+  ### system
+  # To run in multiple threads use this
+  config :consumer_threads, :validate => :number, :default => 1
+  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
 
-  attr_reader :poller
-  attr_reader :s3
-
-
+  # -> goes into LogProcessor:
   def set_codec (folder)
     begin
       @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
@@ -140,57 +175,75 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
+  # this is the default; no need to explicitly define this:
   public
+
+  # --- BEGIN plugin interface ----------------------------------------#
+
+  # initialisation
   def register
-    require "fileutils"
-    require "digest/md5"
-    require "aws-sdk-resources"
-
-
-    #make this hash keys lookups match like regex
-    hash_key_is_regex(set_codec_by_folder)
-    @logger.info("Registering SQS input", :queue => @queue)
-    setup_queue
-
+    # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
+
+    # make this hash do key lookups using regex matching
+    hash_key_is_regex(@set_codec_by_folder)
+
+    # instantiate helpers
+    @sqs_poller = SqsPoller.new(@queue, {
+      queue_owner_aws_account_id: @queue_owner_aws_account_id,
+      from_sns: @from_sns,
+      sqs_explicit_delete: @sqs_explicit_delete,
+      visibility_timeout: @visibility_timeout,
+      delete_on_success: @delete_on_success
+    })
+    @s3_client_factory = S3ClientFactory.new({
+      aws_region: @region,
+      s3_options_by_bucket: @s3_options_by_bucket,
+      s3_role_session_name: @s3_role_session_name
+    })
+    @s3_downloader = S3Downloader.new(
+      # FIXME: if we split the code this way, this needs the client factory!
+      temporary_directory: @temporary_directory,
+      s3_options_by_bucket: @s3_options_by_bucket
+    )
+
+    # administrative stuff
+    @worker_threads = []
   end
 
-   # get_s3client
-   #@s3_resource = get_s3object
-
-
-
-  def handle_message(message, queue, instance_codec)
-    hash = JSON.parse message.body
-    @logger.debug("handle_message", :hash => hash, :message => message)
-    #If send via sns there is an additional JSON layer
-    if @from_sns then
-      hash = JSON.parse(hash['Message'])
+  # startup
+  def run(logstash_event_queue)
+    # start them
+    @worker_threads = @consumer_threads.times.map do |_|
+      run_worker_thread(logstash_event_queue)
     end
-    # there may be test events sent from the s3 bucket which won't contain a Records array,
-    # we will skip those events and remove them from queue
-    if hash['Records'] then
-      # typically there will be only 1 record per event, but since it is an array we will
-      # treat it as if there could be more records
-      hash['Records'].each do |record|
-        @logger.debug("We found a record", :record => record)
-        # in case there are any events with Records that aren't s3 object-created events and can't therefore be
-        # processed by this plugin, we will skip them and remove them from queue
-        if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
-          @logger.debug("It is a valid record")
-          bucket = CGI.unescape(record['s3']['bucket']['name'])
-          key    = CGI.unescape(record['s3']['object']['key'])
-          size   = record['s3']['object']['size']
-          type_folder = get_object_folder(key)
-          # Set input codec by :set_codec_by_folder
-          instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
-          # try download and :skip_delete if it fails
-          #if record['s3']['object']['size'] < 10000000 then
-          process_log(bucket, key, type_folder, instance_codec, queue, message, size)
-          #else
-          #  @logger.info("Your file is too big")
-          #end
-        end
+    # and wait (possibly infinitely) for them to shut down
+    @worker_threads.each { |t| t.join }
+  end
+
+  # shutdown
+  def stop
+    @worker_threads.each do |worker|
+      begin
+        @logger.info("Stopping thread ... ", :thread => worker.inspect)
+        worker.wakeup
+      rescue
+        @logger.error("Cannot stop thread ... try to kill him", :thread => worker.inspect)
+        worker.kill
+      end
+    end
+  end
+
+  # --- END plugin interface ------------------------------------------#
+
+  private
+
+  def run_worker_thread(queue)
+    Thread.new do
+      @logger.info("Starting new worker thread")
+      @sqs_poller.run do |record|
+        logfile = s3_downloader.fetch(record)
+        process_log(logfile) if file
       end
     end
   end
@@ -207,14 +260,14 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           FileUtils.remove_entry_secure(filename, true) if File.exists? filename
           delete_file_from_bucket(object)
         rescue Exception => e
-          @logger.debug("We had problems to delete your file", :file => filename, :error => e)
+          @logger.debug("Deleting file failed", :file => filename, :error => e)
         end
       end
     else
       begin
         FileUtils.remove_entry_secure(filename, true) if File.exists? filename
       rescue Exception => e
-        @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
+        @logger.debug("Cleaning up tmpdir failed", :file => filename, :error => e)
       end
     end
   end
@@ -431,29 +484,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
-  public
-  def run(queue)
-    poller.run(queue)
-  end
-
-  public
-  def stop
-    if @consumer_threads
-      @runner_threads.each do |c|
-        begin
-          @logger.info("Stopping thread ... ", :thread => c.inspect)
-          c.wakeup
-        rescue
-          @logger.error("Cannot stop thread ... try to kill him", :thread => c.inspect)
-          c.kill
-        end
-      end
-    else
-      @logger.warn("Stopping all threads?", :queue => @queue)
-    end
-  end
-
   private
+
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
       result=nil
@@ -465,5 +497,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
       result
     end
+    # return imput hash (convenience)
+    return myhash
   end
+
 end # class
