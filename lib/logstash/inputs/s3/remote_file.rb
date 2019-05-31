@@ -88,4 +88,3 @@ class RemoteFile
       alias_method :to_s, :inspect
     end
   end;end;end
-d
