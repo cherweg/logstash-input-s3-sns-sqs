@@ -1,7 +1,7 @@
 # MessagePoller:
 # polling loop fetches messages from source queue and invokes
 # the provided code block on them
-
+require 'json'
 require 'cgi'
 
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
@@ -34,14 +34,12 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
 
     # initialization and setup happens once, outside the threads:
     #
-    def initialize(queue, options = {})
-      # threading happens in the "master", not in this supplementary class
-      #@runner_threads = []
-      @queue = queue
+    def initialize(sqs_queue, options = {})
+      @queue = sqs_queue
       @stopped = false # FIXME: needed per thread?
       @from_sns = options[:from_sns]
-      @explicit_delete = options[:sqs_explicit_delete]
       @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:from_sns, :sqs_explicit_delete].include? k })
+      @options[:skip_delete] = !options[:sqs_explicit_delete]
       begin
         @logger.info("Registering SQS input", :queue => @queue)
         sqs_client = Aws::SQS::Client.new(aws_options_hash)
@@ -62,24 +60,44 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
     # this is called by every worker thread:
     #
     def run() # not (&block) - pass explicitly (use yield below)
+      # per-thread timer to extend visibility if necessary
+      extender = nil
+      message_backoff = (@options[:visibility_timeout] * 90).to_f / 100.0
+      new_visibility = 2 * @options[:visibility_timeout]
+
+      # "shutdown handler":
       @poller.before_request do |_|
         if stop?
+          # kill visibility extender thread if active?
+          extender.kill if extender
+          extender = nil
           @logger.warn('issuing :stop_polling on "stop?" signal', :queue => @queue)
           # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
           throw :stop_polling
         end
       end
+
       run_with_backoff do
-        @poller.poll(polling_options) do |message|
-          begin
-            # handle_message(message, @codec.clone)
-            preprocess(message) do |record|
-              yield(record) #unless record.nil? - unnecessary; implicit!
-            end
-            @poller.delete_message(message) if @explicit_delete
-          rescue Exception => e
-            @logger.warn("Error in poller loop", :error => e)
+        @poller.poll(@options) do |message|
+          # auto-double the timeout if processing takes too long:
+          extender = Thread.new do
+            sleep message_backoff
+            @logger.info("Extending visibility for message", :message => message)
+            @poller.change_message_visibility_timeout(message, new_visibility)
           end
+          catch (:skip_delete) do
+            begin
+              preprocess(message) do |record|
+                yield(record) #unless record.nil? - unnecessary; implicit
+              end
+            rescue Exception => e
+              @logger.warn("Error in poller loop", :error => e)
+            end
+            @poller.delete_message(message) unless @options[:skip_delete]
+          end
+          # at this time the extender has either fired or is obsolete
+          extender.kill
+          extender = nil
         end
       end
     end
@@ -128,11 +146,14 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
     # we experience a ServiceError.
     # @param [Integer] max_time maximum amount of time to sleep before giving up.
     # @param [Integer] sleep_time the initial amount of time to sleep before retrying.
-    # @param [Block] block Ruby code block to execute.
-    def run_with_backoff(max_time = MAX_TIME_BEFORE_GIVING_UP, sleep_time = BACKOFF_SLEEP_TIME, &block)
+    # instead of requiring
+    # @param [Block] block Ruby code block to execute
+    # and then doing a "block.call",
+    # we yield to the passed block.
+    def run_with_backoff(max_time = MAX_TIME_BEFORE_GIVING_UP, sleep_time = BACKOFF_SLEEP_TIME)
       next_sleep = sleep_time
       begin
-        block.call
+        yield
         next_sleep = sleep_time
       rescue Aws::SQS::Errors::ServiceError => e
         @logger.warn("Aws::SQS::Errors::ServiceError ... retrying SQS request with exponential backoff", :queue => @queue, :sleep_time => sleep_time, :error => e)

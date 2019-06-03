@@ -9,35 +9,25 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
 
     def initialize(options)
       @tempdir = options[:temporary_directory]
-      @options_by_bucket = options[:s3_options_by_bucket].map do |bucket, options|
-      @clients_by_bucket = {}
+      @factory = options[:s3_client_factory]
     end
 
-    def get_s3client(bucket_name)
-      if clients_by_bucket[bucket_name].nil?
-        options = aws_options_hash
-        options.merge!(@options_by_bucket[bucket_name]) if @options_by_bucket[bucket_name]
-        @clients_by_bucket[bucket_name] = Aws::S3::Client.new(options)
-      end
-      return @clients_by_bucket[bucket_name]
-    end
-
-    private
-    # -^- from here on... -^-
-
-    def copy_s3object_to_disk(bucket_name, key, local_file)
-      #filename = File.join(@tempdir, File.basename(key))
-      s3 = get_s3_client(bucket_name)
+    def copy_s3object_to_disk(record)
       completed = false
-      # WARNING: yielding data to a block disables retries of networking errors!
-      File.open(local_file, 'wb') do |file|
+      # (from docs) WARNING:
+      # yielding data to a block disables retries of networking errors!
+      File.open(record[:local_file], 'wb') do |file|
         begin
-          s3.get_object(bucket: bucket_name, key: key) do |chunk|
-            return completed if stop?
-            file.write(chunk)
+          @factory.get_s3_client(record[:bucket]) do |s3|
+            s3.get_object(bucket: record[:bucket], key: record[:key]) do |chunk|
+              return completed if stop?
+              file.write(chunk)
+            end
           end
+          # determine codec:
+          record[:codec] = ...
         rescue Aws::S3::Errors::ServiceError => e
-          @logger.error("Unable to download file. Requeuing the message", :file => remote_object.inspect)
+          @logger.error("Unable to download file. Requeuing the message", :record => record)
           # prevent sqs message deletion
           throw :skip_delete
         end
@@ -46,10 +36,8 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
       return completed
     end
 
-    def assume_s3_role()
-      Aws::AssumeRoleCredentials.new(
-          client: Aws::STS::Client.new(region: @region),
-          role_arn: @s3_role_arn,
-          role_session_name: @s3_role_session_name
-      )
+    def delete_s3_object(record)
+      @factory.get_s3_client(record[:bucket]) do |s3|
+        s3.delete_object(bucket: record[:bucket], key: record[:key])
+      end
     end

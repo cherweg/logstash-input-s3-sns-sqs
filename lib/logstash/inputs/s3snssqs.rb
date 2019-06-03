@@ -161,9 +161,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :visibility_timeout, :validate => :number, :default => 600
 
   ### system
+  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
   # To run in multiple threads use this
   config :consumer_threads, :validate => :number, :default => 1
-  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
 
   # -> goes into LogProcessor:
   def set_codec (folder)
@@ -202,9 +202,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       s3_role_session_name: @s3_role_session_name
     })
     @s3_downloader = S3Downloader.new(
-      # FIXME: if we split the code this way, this needs the client factory!
       temporary_directory: @temporary_directory,
-      s3_options_by_bucket: @s3_options_by_bucket
+      s3_options_by_bucket: @s3_options_by_bucket,
+      s3_client_factory: @s3_client_factory
     )
 
     # administrative stuff
@@ -242,57 +242,37 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     Thread.new do
       @logger.info("Starting new worker thread")
       @sqs_poller.run do |record|
-        logfile = s3_downloader.fetch(record)
-        process_log(logfile) if file
-      end
-    end
-  end
-
-  private
-  def process_log(bucket , key, folder, instance_codec, queue, message, size)
-    s3bucket = @s3_resource.bucket(bucket)
-    @logger.debug("Lets go reading file", :bucket => bucket, :key => key)
-    object = s3bucket.object(key)
-    filename = File.join(temporary_directory, File.basename(key))
-    if download_remote_file(object, filename)
-      if process_local_log( filename, key, folder, instance_codec, queue, bucket, message, size)
-        begin
-          FileUtils.remove_entry_secure(filename, true) if File.exists? filename
-          delete_file_from_bucket(object)
-        rescue Exception => e
-          @logger.debug("Deleting file failed", :file => filename, :error => e)
+        # record is a valid object with the keys ":bucket", ":key", ":size"
+        record[:local_file] = File.join(@tempdir, File.basename(key))
+        if @s3_downloader.copy_s3object_to_disk(record)
+          process_log(record, queue)
         end
       end
-    else
-      begin
-        FileUtils.remove_entry_secure(filename, true) if File.exists? filename
-      rescue Exception => e
-        @logger.debug("Cleaning up tmpdir failed", :file => filename, :error => e)
-      end
     end
   end
 
-  private
-  # Stream the remove file to the local disk
-  #
-  # @param [S3Object] Reference to the remove S3 objec to download
-  # @param [String] The Temporary filename to stream to.
-  # @return [Boolean] True if the file was completely downloaded
-  def download_remote_file(remote_object, local_filename)
-    completed = false
-    @logger.debug("S3 input: Download remote file", :remote_key => remote_object.key, :local_filename => local_filename)
-    File.open(local_filename, 'wb') do |s3file|
-      return completed if stop?
-      begin
-        remote_object.get(:response_target => s3file)
-      rescue Aws::S3::Errors::ServiceError => e
-        @logger.error("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
-        throw :skip_delete
-      end
-    end
-    completed = true
+  def process_log(record, queue)
+    logfile = record[:local_file]
 
-    return completed
+    # catch here and eventually re-throw to allow for local cleanups
+    completed = catch (:skip_delete) do
+    end
+
+    begin
+      FileUtils.remove_entry_secure(logfile, true) if File.exists?(logfile)
+    rescue Exception => e
+      @logger.warn("Could not delete file", :file => logfile, :error => e)
+    end
+
+    # re-throw for poller if anything bad happened
+    throw :skip_delete unless completed
+
+    begin
+      @s3_downloader.delete_s3_object(record) if @delete_on_success
+    rescue Exception => e
+      @logger.warn("Failed to delete s3 object", :record => record, :error => e)
+    end
+
   end
 
   private
@@ -310,14 +290,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # So all IO stuff: decompression, reading need to be done in the actual
     # input and send as bytes to the codecs.
     read_file(filename) do |line|
-      if (Time.now - start_time) >= (@visibility_timeout.to_f / 100.0 * 90.to_f)
-        @logger.info("Increasing the visibility_timeout ... ", :timeout => @visibility_timeout, :filename => filename, :filesize => size, :start => start_time )
-        poller.change_message_visibility_timeout(message, @visibility_timeout)
-        start_time = Time.now
-      end
       if stop?
-        @logger.warn("Logstash S3 input, stop reading in the middle of the file, we will read it again when logstash is started")
-        return false
+        @logger.warn("Abort reading in the middle of the file, we will read it again when logstash is started")
+        throw :skip_delete
       end
       line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
       #@logger.debug("read line", :line => line)
@@ -326,12 +301,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # We are making an assumption concerning cloudfront
         # log format, the user will use the plain or the line codec
         # and the message key will represent the actual line content.
-        # If the event is only metadata the event will be drop.
-        # This was the behavior of the pre 1.5 plugin.
+        # If the event is only metadata the event will be dropped.
+        # This was the behavior of the pre-1.5 plugin.
         #
-        # The line need to go through the codecs to replace
-        # unknown bytes in the log stream before doing a regexp match or
-        # you will get a `Error: invalid byte sequence in UTF-8'
+        # The line needs to go through the codecs to have unknown bytes
+        # in the log stream replaced before doing a regexp match, or
+        # you will get an 'Error: invalid byte sequence in UTF-8'
         local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
       end
     end
@@ -426,52 +401,20 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
-
-  private
-  def get_s3client
-    if s3_access_key_id and s3_secret_access_key
-      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
-      @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
-    elsif @s3_role_arn
-      @s3_client = Aws::S3::Client.new(aws_options_hash.merge!({ :credentials => s3_assume_role }))
-      @logger.debug("Using S3 Credentials from role", :s3client => @s3_client.inspect, :options => aws_options_hash.merge!({ :credentials => s3_assume_role }))
-    else
-      @s3_client = Aws::S3::Client.new(aws_options_hash)
-    end
-  end
-
-  private
-  def get_s3object
-    s3 = Aws::S3::Resource.new(client: @s3_client)
-  end
-
-  private
-  def s3_assume_role()
-    Aws::AssumeRoleCredentials.new(
-        client: Aws::STS::Client.new(region: @region),
-        role_arn: @s3_role_arn,
-        role_session_name: @s3_role_session_name
-    )
-  end
-
-  private
   def event_is_metadata?(event)
     return false unless event.get("message").class == String
     line = event.get("message")
     version_metadata?(line) || fields_metadata?(line)
   end
 
-  private
   def version_metadata?(line)
     line.start_with?('#Version: ')
   end
 
-  private
   def fields_metadata?(line)
     line.start_with?('#Fields: ')
   end
 
-  private
   def update_metadata(metadata, event)
     line = event.get('message').strip
 
@@ -484,7 +427,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
-  private
 
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
