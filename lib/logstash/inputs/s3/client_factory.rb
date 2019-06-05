@@ -52,5 +52,6 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
           role_session_name: @s3_role_session_name
       ) if credentials['role']
     end
-  end
-end
+
+  end # class
+end;end;end
