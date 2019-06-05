@@ -1,2 +1,0 @@
-class StreamDownloader
-end

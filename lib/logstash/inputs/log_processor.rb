@@ -30,7 +30,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
         @logger.debug("End of file #{file}")
         # ensure any stateful codecs (such as multi-line ) are flushed to the queue
         codec.flush do |event|
-          decorate_event(event, metadata)
+          decorate_event(event, metadata, type)
           @logger.debug("We are about to flush an incomplete event...", :event => event)
           logstash_event_queue << event
         end
