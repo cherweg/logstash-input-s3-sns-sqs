@@ -13,6 +13,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
     def process(record, logstash_event_queue)
       file = record[:local_file]
       codec = @codec_factory.get_codec(record)
+      type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
       @logger.debug('Processing file', :filename => file)
       metadata = {}
       read_file(file) do |line|
@@ -23,7 +24,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
         line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
         codec.decode(line) do |event|
           @logger.debug("decorate event")
-          decorate_event(event, metadata)
+          decorate_event(event, metadata, type)
           logstash_event_queue << event
         end
         @logger.debug("End of file #{file}")
@@ -40,11 +41,13 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
 
     private
 
-    def decorate_event(event)
+    def decorate_event(event, metadata, type)
       if event_is_metadata?(event)
         @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
         update_metadata(metadata, event)
       else
+        # type by folder - set before "decorate()" enforces default
+        event.set('type', type) if type && !event.include?('type')
         decorate(event)
 
         event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
