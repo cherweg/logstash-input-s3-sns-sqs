@@ -190,7 +190,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         end
         @codec_by_folder[bucket] = folders unless folders.empty?
         @codec_by_folder[bucket] = types unless types.empty?
-        end
       end
     end
 
