@@ -9,7 +9,6 @@ require "aws-sdk"
 # "object-oriented interfaces on top of API clients"...
 # => Overhead. FIXME: needed?
 require "aws-sdk-resources"
-require 'logstash/inputs/mime/MagicgzipValidator'
 require "fileutils"
 # unused in code:
 #require "stud/interval"
@@ -104,20 +103,21 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   default :codec, "plain"
 
-  # FIXME: needed per bucket in the future!
   # Future config might look somewhat like this:
   #
-  # buckets {
+  # s3_buckets {
   #   "bucket1_name": {
   #     "credentials": { "role": "aws:role:arn:for:bucket:access" },
   #     "folders": [
   #       {
-  #         "prefix:": "key1",
-  #         "codec": "some-codec"
+  #         "key": "my_folder",
+  #         "codec": "json"
+  #         "type": "my_lovely_index"
   #       },
   #       {
-  #         "prefix": "key2",
-  #         "codec": "some-other-codec"
+  #         "key": "my_other_folder",
+  #         "codec": "json_stream"
+  #         "type": ""
   #       }
   #     ]
   #   },
@@ -128,25 +128,27 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #     },
   #     "folders": [
   #       {
-  #         "prefix": ""
+  #         "key": ""
   #       }
   #     ]
   #   }
   # }
   #
   ### s3 -> TODO: replace by options for multiple buckets
-  config :s3_key_prefix, :validate => :string, :default => ''
+  #config :s3_key_prefix, :validate => :string, :default => ''
   #Sometimes you need another key for s3. This is a first test...
-  config :s3_access_key_id, :validate => :string
-  config :s3_secret_access_key, :validate => :string
-  config :set_role_by_bucket, :validate => :hash, :default => {}
+  #config :s3_access_key_id, :validate => :string
+  #config :s3_secret_access_key, :validate => :string
+  #config :set_role_by_bucket, :validate => :hash, :default => {}
   #If you have different file-types in you s3 bucket, you could define codec by folder
   #set_codec_by_folder => {"My-ELB-logs" => "plain"}
-  config :set_codec_by_folder, :validate => :hash, :default => {}
+  #config :set_codec_by_folder, :validate => :hash, :default => {}
   # The AWS IAM Role to assume, if any.
   # This is used to generate temporary credentials typically for cross-account access.
   # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
-  config :s3_role_arn, :validate => :string
+  #config :s3_role_arn, :validate => :string
+  # We need a list of buckets, together with role arns and possible folder/codecs:
+  config :s3_options_by_bucket, :validate => hash, :required => true
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
 
@@ -156,7 +158,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :queue_owner_aws_account_id, :validate => :string, :required => false
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
-  config :sqs_explicit_delete, :validate => :boolean, :default => false
+  config :sqs_skip_delete, :validate => :boolean, :default => false
   config :delete_on_success, :validate => :boolean, :default => false
   config :visibility_timeout, :validate => :number, :default => 600
 
@@ -165,17 +167,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # To run in multiple threads use this
   config :consumer_threads, :validate => :number, :default => 1
 
-  # -> goes into LogProcessor:
-  def set_codec (folder)
-    begin
-      @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
-      LogStash::Plugin.lookup("codec", "#{set_codec_by_folder[folder]}").new("charset" => @codec.charset)
-    rescue Exception => e
-      @logger.error("Failed to set_codec with error", :error => e)
-    end
-  end
-
-  # this is the default; no need to explicitly define this:
   public
 
   # --- BEGIN plugin interface ----------------------------------------#
@@ -185,27 +176,49 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
 
-    # make this hash do key lookups using regex matching
-    hash_key_is_regex(@set_codec_by_folder)
+    # create the bucket=>folder=>codec lookup from config options
+    @codec_by_folder = {}
+    @type_by_folder = {}
+    @s3_options_by_bucket.each do |bucket, options|
+      if options.key?('folders')
+        # make these hashes do key lookups using regex matching
+        folders = hash_key_is_regex({})
+        types = hash_key_is_regex({})
+        options['folders'].each do |entry|
+          folders[entry['key']] = entry['codec'] if entry.key?('codec')
+          types[entry['key']] = entry['type'] if entry.key?('type')
+        end
+        @codec_by_folder[bucket] = folders unless folders.empty?
+        @codec_by_folder[bucket] = types unless types.empty?
+        end
+      end
+    end
 
     # instantiate helpers
     @sqs_poller = SqsPoller.new(@queue, {
       queue_owner_aws_account_id: @queue_owner_aws_account_id,
       from_sns: @from_sns,
       sqs_explicit_delete: @sqs_explicit_delete,
-      visibility_timeout: @visibility_timeout,
-      delete_on_success: @delete_on_success
+      visibility_timeout: @visibility_timeout
     })
     @s3_client_factory = S3ClientFactory.new({
       aws_region: @region,
       s3_options_by_bucket: @s3_options_by_bucket,
       s3_role_session_name: @s3_role_session_name
     })
-    @s3_downloader = S3Downloader.new(
+    @s3_downloader = S3Downloader.new({
       temporary_directory: @temporary_directory,
-      s3_options_by_bucket: @s3_options_by_bucket,
-      s3_client_factory: @s3_client_factory
-    )
+      s3_client_factory: @s3_client_factory,
+      delete_on_success: @delete_on_success
+    })
+    @codec_factory = CodecFactory.new({
+      default_codec: @codec,
+      codec_by_folder: @codec_by_folder
+    })
+    @log_processor = LogProcessor.new({
+      codec_factory: @codec_factory,
+      type_by_folder: @type_by_folder
+    })
 
     # administrative stuff
     @worker_threads = []
@@ -245,188 +258,17 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(@tempdir, File.basename(key))
         if @s3_downloader.copy_s3object_to_disk(record)
-          process_log(record, queue)
+          completed = catch(:skip_delete) do
+            @log_processor.process(record, queue)
+          end
+          @s3_downloader.cleanup_local_object(record)
+          # re-throw if necessary:
+          throw :skip_delete unless completed
+          @s3_downloader.cleanup_s3object(record)
         end
       end
     end
   end
-
-  def process_log(record, queue)
-    logfile = record[:local_file]
-
-    # catch here and eventually re-throw to allow for local cleanups
-    completed = catch (:skip_delete) do
-    end
-
-    begin
-      FileUtils.remove_entry_secure(logfile, true) if File.exists?(logfile)
-    rescue Exception => e
-      @logger.warn("Could not delete file", :file => logfile, :error => e)
-    end
-
-    # re-throw for poller if anything bad happened
-    throw :skip_delete unless completed
-
-    begin
-      @s3_downloader.delete_s3_object(record) if @delete_on_success
-    rescue Exception => e
-      @logger.warn("Failed to delete s3 object", :record => record, :error => e)
-    end
-
-  end
-
-  private
-
-  # Read the content of the local file
-  #
-  # @param [Queue] Where to push the event
-  # @param [String] Which file to read from
-  # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, folder, instance_codec, queue, bucket, message, size)
-    @logger.debug('Processing file', :filename => filename)
-    metadata = {}
-    start_time = Time.now
-    # Currently codecs operates on bytes instead of stream.
-    # So all IO stuff: decompression, reading need to be done in the actual
-    # input and send as bytes to the codecs.
-    read_file(filename) do |line|
-      if stop?
-        @logger.warn("Abort reading in the middle of the file, we will read it again when logstash is started")
-        throw :skip_delete
-      end
-      line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      #@logger.debug("read line", :line => line)
-      instance_codec.decode(line) do |event|
-        @logger.debug("decorate event")
-        # We are making an assumption concerning cloudfront
-        # log format, the user will use the plain or the line codec
-        # and the message key will represent the actual line content.
-        # If the event is only metadata the event will be dropped.
-        # This was the behavior of the pre-1.5 plugin.
-        #
-        # The line needs to go through the codecs to have unknown bytes
-        # in the log stream replaced before doing a regexp match, or
-        # you will get an 'Error: invalid byte sequence in UTF-8'
-        local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-      end
-    end
-    @logger.debug("end if file #{filename}")
-    #@logger.info("event pre flush", :event => event)
-    # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
-    instance_codec.flush do |event|
-      local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-      @logger.debug("We are about to flush an incomplete event...", :event => event)
-    end
-
-    return true
-  end # def process_local_log
-
-  private
-  def local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-    @logger.debug('decorating event', :event => event.to_s)
-    if event_is_metadata?(event)
-      @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
-      update_metadata(metadata, event)
-    else
-
-      decorate(event)
-
-      event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
-      event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
-
-      event.set("[@metadata][s3][object_key]", key)
-      event.set("[@metadata][s3][bucket_name]", bucket)
-      event.set("[@metadata][s3][object_folder]", folder)
-      @logger.debug('add metadata', :object_key => key, :bucket => bucket, :folder => folder)
-      queue << event
-    end
-  end
-
-
-  private
-  def get_object_folder(key)
-    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
-      return match['type_folder']
-    else
-      return ""
-    end
-  end
-
-  private
-  def read_file(filename, &block)
-    if gzip?(filename)
-      read_gzip_file(filename, block)
-    else
-      read_plain_file(filename, block)
-    end
-  end
-
-  def read_plain_file(filename, block)
-    File.open(filename, 'rb') do |file|
-      file.each(&block)
-    end
-  end
-
-  private
-  def read_gzip_file(filename, block)
-    file_stream = FileInputStream.new(filename)
-    gzip_stream = GZIPInputStream.new(file_stream)
-    decoder = InputStreamReader.new(gzip_stream, "UTF-8")
-    buffered = BufferedReader.new(decoder)
-
-    while (line = buffered.readLine())
-      block.call(line)
-    end
-  rescue ZipException => e
-    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, :error => e)
-  ensure
-    buffered.close unless buffered.nil?
-    decoder.close unless decoder.nil?
-    gzip_stream.close unless gzip_stream.nil?
-    file_stream.close unless file_stream.nil?
-  end
-
-  private
-  def gzip?(filename)
-    return true if filename.end_with?('.gz','.gzip')
-    MagicGzipValidator.new(File.new(filename, 'r')).valid?
-  rescue Exception => e
-    @logger.debug("Problem while gzip detection", :error => e)
-  end
-
-  private
-  def delete_file_from_bucket(object)
-    if @delete_on_success
-      object.delete()
-    end
-  end
-
-  def event_is_metadata?(event)
-    return false unless event.get("message").class == String
-    line = event.get("message")
-    version_metadata?(line) || fields_metadata?(line)
-  end
-
-  def version_metadata?(line)
-    line.start_with?('#Version: ')
-  end
-
-  def fields_metadata?(line)
-    line.start_with?('#Fields: ')
-  end
-
-  def update_metadata(metadata, event)
-    line = event.get('message').strip
-
-    if version_metadata?(line)
-      metadata[:cloudfront_version] = line.split(/#Version: (.+)/).last
-    end
-
-    if fields_metadata?(line)
-      metadata[:cloudfront_fields] = line.split(/#Fields: (.+)/).last
-    end
-  end
-
 
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
@@ -439,7 +281,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
       result
     end
-    # return imput hash (convenience)
+    # return input hash (convenience)
     return myhash
   end
 

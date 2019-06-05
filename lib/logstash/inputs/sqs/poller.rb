@@ -36,10 +36,10 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
     #
     def initialize(sqs_queue, options = {})
       @queue = sqs_queue
-      @stopped = false # FIXME: needed per thread?
+      # @stopped = false # FIXME: needed per thread?
       @from_sns = options[:from_sns]
-      @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:from_sns, :sqs_explicit_delete].include? k })
-      @options[:skip_delete] = !options[:sqs_explicit_delete]
+      @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:from_sns, :sqs_skip_delete].include? k })
+      @options[:skip_delete] = options[:sqs_skip_delete]
       begin
         @logger.info("Registering SQS input", :queue => @queue)
         sqs_client = Aws::SQS::Client.new(aws_options_hash)
@@ -85,29 +85,27 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
             @logger.info("Extending visibility for message", :message => message)
             @poller.change_message_visibility_timeout(message, new_visibility)
           end
-          catch (:skip_delete) do
-            begin
-              preprocess(message) do |record|
-                yield(record) #unless record.nil? - unnecessary; implicit
-              end
-            rescue Exception => e
-              @logger.warn("Error in poller loop", :error => e)
+          failed = false
+          begin
+            preprocess(message) do |record|
+              yield(record) #unless record.nil? - unnecessary; implicit
             end
-            @poller.delete_message(message) unless @options[:skip_delete]
+          rescue Exception => e
+            @logger.warn("Error in poller loop", :error => e)
+            failed = true
           end
           # at this time the extender has either fired or is obsolete
           extender.kill
           extender = nil
+          throw :skip_delete if failed
         end
       end
     end
 
-    #
     # FIXME: this is not called at all, and not needed if "stop?" works as expected
-    #
-    def stop
-      @stopped = true # FIXME: needed per thread?
-    end
+    # def stop
+    #   @stopped = true # FIXME: needed per thread?
+    # end
 
     private
 
