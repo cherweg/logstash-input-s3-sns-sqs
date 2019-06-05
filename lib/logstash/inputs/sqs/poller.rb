@@ -156,7 +156,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
       rescue Aws::SQS::Errors::ServiceError => e
         @logger.warn("Aws::SQS::Errors::ServiceError ... retrying SQS request with exponential backoff", :queue => @queue, :sleep_time => sleep_time, :error => e)
         sleep(next_sleep)
-        next_sleep =  next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
+        next_sleep = next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
         retry
       end
     end
