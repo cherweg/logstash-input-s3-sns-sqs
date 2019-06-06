@@ -4,7 +4,7 @@ require 'thread'
 require "logstash/inputs/base"
 #require "logstash/inputs/s3/remote_file"
 
-module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
+module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class S3Downloader
 
     def initialize(options)

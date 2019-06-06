@@ -1,14 +1,14 @@
 # not needed - Mutex is part of core lib:
 #require 'thread'
 
-module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
+module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class S3ClientFactory
 
     def initialize(options)
       # FIXME: region per bucket?
       @sts_client = Aws::STS::Client.new(region: options[:aws_region])
       # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)
-      @options_by_bucket = options[:s3_options_by_bucket]
+      @credentials_by_bucket = options[:s3_credentials_by_bucket]
       # lazy-init this as well:
       # @credentials_by_bucket = @options_by_bucket.map { |bucket, options|
       #   [bucket.to_sym, assume_s3_role(options['credentials'])]
@@ -24,8 +24,8 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
       @creation_mutex.synchronize do
         if @clients_by_bucket[bucket_symbol].nil?
           options = aws_options_hash
-          if @options_by_bucket[bucket_name] and @options_by_bucket[bucket_name]['credentials']
-            options.merge!(credentials: assume_s3_role(@options_by_bucket[bucket_name]['credentials']))
+          if @credentials_by_bucket[bucket_name]
+            options.merge!(credentials: assume_s3_role(@credentials_by_bucket[bucket_name]))
           end
           @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
           #@mutexes_by_bucket[bucket_symbol] = Mutex.new
