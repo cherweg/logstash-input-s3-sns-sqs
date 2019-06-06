@@ -4,7 +4,7 @@
 require 'json'
 require 'cgi'
 
-module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
+module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class SqsPoller
 
     # queue poller options we want to set explicitly

@@ -3,7 +3,7 @@
 # and creates LogStash events from these
 require 'logstash/inputs/mime/magic_gzip_validator'
 
-module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Base
+module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class LogProcessor
     def initialize(options)
       @codec_factory = options[:codec_factory]

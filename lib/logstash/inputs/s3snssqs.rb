@@ -105,8 +105,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # Future config might look somewhat like this:
   #
-  # s3_buckets {
-  #   "bucket1_name": {
+  # s3_options_by_bucket = [
+  #   {
+  #     "bucket_name": "my-beautiful-bucket",
   #     "credentials": { "role": "aws:role:arn:for:bucket:access" },
   #     "folders": [
   #       {
@@ -121,7 +122,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #       }
   #     ]
   #   },
-  #   "bucket2_name": {
+  #   {
+  #     "bucket_name": "my-other-bucket"
   #     "credentials": {
   #        "access_key_id": "some-id",
   #        "secret_access_key": "some-secret-key"
@@ -176,10 +178,15 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
 
+    @credentials_by_bucket = {}
     # create the bucket=>folder=>codec lookup from config options
     @codec_by_folder = {}
     @type_by_folder = {}
-    @s3_options_by_bucket.each do |bucket, options|
+    @s3_options_by_bucket.each do |options|
+      bucket = options['bucket_name']
+      if options.key?('credentials')
+        @credentials_by_bucket[bucket] = options['credentials']
+      end
       if options.key?('folders')
         # make these hashes do key lookups using regex matching
         folders = hash_key_is_regex({})
@@ -202,7 +209,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     })
     @s3_client_factory = S3ClientFactory.new({
       aws_region: @region,
-      s3_options_by_bucket: @s3_options_by_bucket,
+      s3_credentials_by_bucket: @credentials_by_bucket,
       s3_role_session_name: @s3_role_session_name
     })
     @s3_downloader = S3Downloader.new({
