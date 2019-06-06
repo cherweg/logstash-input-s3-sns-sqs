@@ -150,7 +150,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
   #config :s3_role_arn, :validate => :string
   # We need a list of buckets, together with role arns and possible folder/codecs:
-  config :s3_options_by_bucket, :validate => hash, :required => true
+  config :s3_options_by_bucket, :validate => :array, :required => true
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
 
