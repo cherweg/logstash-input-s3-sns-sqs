@@ -26,6 +26,8 @@ java_import java.util.zip.ZipException
 # these may go into this file for brevity...
 require_relative 'sqs/poller'
 require_relative 's3/client_factory'
+require_relative 's3/downloader'
+require_relative 'codec_factory'
 require_relative 'log_processor'
 
 Aws.eager_autoload!
@@ -201,27 +203,27 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
 
     # instantiate helpers
-    @sqs_poller = SqsPoller.new(@queue, {
+    @sqs_poller = SqsPoller.new(@logger, @queue, {
       queue_owner_aws_account_id: @queue_owner_aws_account_id,
       from_sns: @from_sns,
       sqs_explicit_delete: @sqs_explicit_delete,
       visibility_timeout: @visibility_timeout
-    })
-    @s3_client_factory = S3ClientFactory.new({
+    }, aws_options_hash)
+    @s3_client_factory = S3ClientFactory.new(@logger, {
       aws_region: @region,
       s3_credentials_by_bucket: @credentials_by_bucket,
       s3_role_session_name: @s3_role_session_name
     })
-    @s3_downloader = S3Downloader.new({
+    @s3_downloader = S3Downloader.new(@logger, {
       temporary_directory: @temporary_directory,
       s3_client_factory: @s3_client_factory,
       delete_on_success: @delete_on_success
     })
-    @codec_factory = CodecFactory.new({
+    @codec_factory = CodecFactory.new(@logger, {
       default_codec: @codec,
       codec_by_folder: @codec_by_folder
     })
-    @log_processor = LogProcessor.new({
+    @log_processor = LogProcessor.new(@logger, {
       codec_factory: @codec_factory,
       type_by_folder: @type_by_folder
     })

@@ -1,9 +1,12 @@
 # CodecFactory:
 # lazy-fetch codec plugins
 # (FIXME: is this thread-safe?)
+require "logstash/inputs/threadable"
+
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class CodecFactory
-    def initialize(options)
+    def initialize(logger, options)
+      @logger = logger
       @default_codec = options[:default_codec]
       @codec_by_folder = options[:codec_by_folder]
       @codecs = {

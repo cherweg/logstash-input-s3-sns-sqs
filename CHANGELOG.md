@@ -1,3 +1,10 @@
+##2.0.0
+Breaking Changes:
+- s3_options_by_bucket substitutes all s3_* options
+Changes:
+- Refactor plugin structure to be more modular 
+- Rework threadding design
+- introduce s3_options_by_bucket to configure settings (e.g aws_options_hash or type)
 ##1.6.1
 - Fix typo in gzip error logging
 ##1.6.0

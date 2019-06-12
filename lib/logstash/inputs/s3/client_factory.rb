@@ -1,10 +1,13 @@
 # not needed - Mutex is part of core lib:
 #require 'thread'
+require "logstash/inputs/threadable"
+
 
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class S3ClientFactory
 
-    def initialize(options)
+    def initialize(logger, options)
+      @logger = logger
       # FIXME: region per bucket?
       @sts_client = Aws::STS::Client.new(region: options[:aws_region])
       # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)

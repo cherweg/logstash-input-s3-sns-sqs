@@ -3,6 +3,7 @@
 # the provided code block on them
 require 'json'
 require 'cgi'
+require "logstash/inputs/threadable"
 
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class SqsPoller
@@ -34,7 +35,8 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
     # initialization and setup happens once, outside the threads:
     #
-    def initialize(sqs_queue, options = {})
+    def initialize(logger, sqs_queue, options = {}, aws_options_hash)
+      @logger = logger
       @queue = sqs_queue
       # @stopped = false # FIXME: needed per thread?
       @from_sns = options[:from_sns]
