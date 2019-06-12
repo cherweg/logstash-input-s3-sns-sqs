@@ -2,10 +2,13 @@
 # reads and decodes locally available file with log lines
 # and creates LogStash events from these
 require 'logstash/inputs/mime/magic_gzip_validator'
+require "logstash/inputs/threadable"
+
 
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class LogProcessor
-    def initialize(options)
+    def initialize(logger, options)
+      @logger = logger
       @codec_factory = options[:codec_factory]
       @type_by_folder = options[:type_by_folder]
     end
