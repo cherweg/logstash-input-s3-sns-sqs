@@ -21,7 +21,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       ::File.open(record[:local_file], 'wb') do |file|
         return false if stop?
         begin
-          @factory.get_s3_client(record[:bucket]) do |s3|
+          @factory.get_s3client(record[:bucket]) do |s3|
             response = s3.get_object(
               bucket: record[:bucket],
               key: record[:key],
@@ -45,7 +45,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def cleanup_s3object(record)
       return unless @delete_on_success
       begin
-        @factory.get_s3_client(record[:bucket]) do |s3|
+        @factory.get_s3client(record[:bucket]) do |s3|
           s3.delete_object(bucket: record[:bucket], key: record[:key])
         end
       rescue Exception => e
