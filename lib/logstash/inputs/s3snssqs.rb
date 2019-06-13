@@ -214,7 +214,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       aws_region: @region,
       s3_credentials_by_bucket: @credentials_by_bucket,
       s3_role_session_name: @s3_role_session_name
-    })
+    }, aws_options_hash)
     @s3_downloader = S3Downloader.new(@logger, {
       temporary_directory: @temporary_directory,
       s3_client_factory: @s3_client_factory,

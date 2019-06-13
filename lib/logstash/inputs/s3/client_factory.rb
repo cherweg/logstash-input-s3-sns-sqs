@@ -6,8 +6,9 @@ require "logstash/inputs/threadable"
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class S3ClientFactory
 
-    def initialize(logger, options)
+    def initialize(logger, options, aws_options_hash)
       @logger = logger
+      @aws_options_hash = aws_options_hash
       # FIXME: region per bucket?
       @sts_client = Aws::STS::Client.new(region: options[:aws_region])
       # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)
@@ -26,7 +27,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       bucket_symbol = bucket_name.to_sym
       @creation_mutex.synchronize do
         if @clients_by_bucket[bucket_symbol].nil?
-          options = aws_options_hash
+          options = @aws_options_hash
           if @credentials_by_bucket[bucket_name]
             options.merge!(credentials: assume_s3_role(@credentials_by_bucket[bucket_name]))
           end
