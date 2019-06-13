@@ -264,12 +264,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     Thread.new do
       @logger.info("Starting new worker thread")
       @sqs_poller.run do |record|
-        @logger.debug("Outside Poller: got a record", :record => record)
+        @logger.info("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
-        record[:local_file] = File.join(@tempdir, File.basename(record[:key]))
+        record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
+        @logger.info("Outside Poller: Add local_file", :record => record)
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
-            @logger.debug("begin processing file")
+            @logger.info("begin processing file")
             @log_processor.process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
