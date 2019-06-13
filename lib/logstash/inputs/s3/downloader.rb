@@ -9,7 +9,6 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
     def initialize(logger, options)
       @logger = logger
-      @tempdir = options[:temporary_directory]
       @factory = options[:s3_client_factory]
       @delete_on_success = options[:delete_on_success]
     end
@@ -18,20 +17,18 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       # (from docs) WARNING:
       # yielding data to a block disables retries of networking errors!
       @logger.info("start a download")
-      ::File.open(record[:local_file], 'wb') do |file|
-        return false if stop?
-        begin
-          @factory.get_s3client(record[:bucket]) do |s3|
-            response = s3.get_object(
-              bucket: record[:bucket],
-              key: record[:key],
-              response_target: record[:local_file])
-          end
-        rescue Aws::S3::Errors::ServiceError => e
-          @logger.error("Unable to download file. Requeuing the message", :record => record)
-          # prevent sqs message deletion
-          throw :skip_delete
+      begin
+        @factory.get_s3client(record[:bucket]) do |s3|
+          response = s3.get_object(
+            bucket: record[:bucket],
+            key: record[:key],
+            response_target: record[:local_file]
+          )
         end
+      rescue Aws::S3::Errors::ServiceError => e
+        @logger.error("Unable to download file. Requeuing the message", :record => record)
+        # prevent sqs message deletion
+        throw :skip_delete
       end
       return true
     end
