@@ -25,7 +25,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
             response = s3.get_object(
               bucket: record[:bucket],
               key: record[:key],
-              target: file)
+              target: record[:local_file])
           end
         rescue Aws::S3::Errors::ServiceError => e
           @logger.error("Unable to download file. Requeuing the message", :record => record)
