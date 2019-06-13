@@ -18,7 +18,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       # yielding data to a block disables retries of networking errors!
       @logger.info("start a download")
       begin
-        @factory.get_s3client(record[:bucket]) do |s3|
+        @factory.get_s3_client(record[:bucket]) do |s3|
           response = s3.get_object(
             bucket: record[:bucket],
             key: record[:key],
@@ -34,7 +34,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     end
 
     def cleanup_local_object(record)
-      FileUtils.remove_entry_secure(record[:local_file], true) if File.exists?(record[:local_file])
+      FileUtils.remove_entry_secure(record[:local_file], true) if ::File.exists?(record[:local_file])
     rescue Exception => e
       @logger.warn("Could not delete file", :file => record[:local_file], :error => e)
     end
@@ -42,7 +42,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def cleanup_s3object(record)
       return unless @delete_on_success
       begin
-        @factory.get_s3client(record[:bucket]) do |s3|
+        @factory.get_s3_client(record[:bucket]) do |s3|
           s3.delete_object(bucket: record[:bucket], key: record[:key])
         end
       rescue Exception => e

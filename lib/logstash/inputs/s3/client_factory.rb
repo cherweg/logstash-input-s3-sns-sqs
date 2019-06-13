@@ -23,7 +23,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       @creation_mutex = Mutex.new
     end
 
-    def get_s3client(bucket_name)
+    def get_s3_client(bucket_name)
       bucket_symbol = bucket_name.to_sym
       @creation_mutex.synchronize do
         @logger.info("Inside factory mutex", :client => @clients_by_bucket[bucket_symbol].nil?)
@@ -38,7 +38,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         end
       end
       # to be thread-safe, one uses this method like this:
-      # s3_client_factory.get_s3client(my_s3_bucket) do
+      # s3_client_factory.get_s3_client(my_s3_bucket) do
       #   ... do stuff ...
       # end
       # FIXME: this does not allow concurrent downloads from the same bucket!
