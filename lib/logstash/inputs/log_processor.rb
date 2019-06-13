@@ -27,13 +27,13 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
         codec.decode(line) do |event|
           @logger.debug("decorate event")
-          decorate_event(event, metadata, type)
+          decorate_event(event, metadata, type, record[:key], record[:bucket])
           logstash_event_queue << event
         end
         @logger.debug("End of file #{file}")
         # ensure any stateful codecs (such as multi-line ) are flushed to the queue
         codec.flush do |event|
-          decorate_event(event, metadata, type)
+          decorate_event(event, metadata, type, record[:key], record[:bucket])
           @logger.debug("We are about to flush an incomplete event...", :event => event)
           logstash_event_queue << event
         end
@@ -44,7 +44,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
     private
 
-    def decorate_event(event, metadata, type)
+    def decorate_event(event, metadata, type, key, bucket)
       if event_is_metadata?(event)
         @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
         update_metadata(metadata, event)

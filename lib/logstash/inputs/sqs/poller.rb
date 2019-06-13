@@ -40,7 +40,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       @queue = sqs_queue
       # @stopped = false # FIXME: needed per thread?
       @from_sns = options[:from_sns]
-      @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:from_sns, :sqs_skip_delete].include? k })
+      @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:sqs_explicit_delete, :from_sns, :queue_owner_aws_account_id, :sqs_skip_delete].include? k })
       @options[:skip_delete] = options[:sqs_skip_delete]
       begin
         @logger.info("Registering SQS input", :queue => @queue)
@@ -81,6 +81,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
       run_with_backoff do
         @poller.poll(@options) do |message|
+          @logger.info("Inside Poller: polled message", :message => message)
           # auto-double the timeout if processing takes too long:
           extender = Thread.new do
             sleep message_backoff
@@ -90,6 +91,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
           failed = false
           begin
             preprocess(message) do |record|
+              @logger.info("we got a record", :record => record)
               yield(record) #unless record.nil? - unnecessary; implicit
             end
           rescue Exception => e
@@ -105,13 +107,19 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     end
 
     # FIXME: this is not called at all, and not needed if "stop?" works as expected
-    # def stop
-    #   @stopped = true # FIXME: needed per thread?
-    # end
+    #
+    def stop
+      @stopped = true # FIXME: needed per thread?
+    end
+
+    def stop?
+      @stopped
+    end
 
     private
 
     def preprocess(message)
+      @logger.debug("Inside Preprocess: Start", :message => message)
       payload = JSON.parse(message.body)
       payload = JSON.parse(payload['Message']) if @from_sns
       return nil unless payload['Records']
