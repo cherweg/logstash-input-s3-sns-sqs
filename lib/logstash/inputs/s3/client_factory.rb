@@ -26,12 +26,14 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def get_s3client(bucket_name)
       bucket_symbol = bucket_name.to_sym
       @creation_mutex.synchronize do
+        @logger.info("Inside factory mutex", :client => @clients_by_bucket[bucket_symbol].nil?)
         if @clients_by_bucket[bucket_symbol].nil?
           options = @aws_options_hash
           if @credentials_by_bucket[bucket_name]
             options.merge!(credentials: assume_s3_role(@credentials_by_bucket[bucket_name]))
           end
           @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
+          @logger.info("Created a new S3 Client", :bucket_name => bucket_name, :client => @clients_by_bucket[bucket_symbol])
           #@mutexes_by_bucket[bucket_symbol] = Mutex.new
         end
       end
@@ -42,7 +44,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       # FIXME: this does not allow concurrent downloads from the same bucket!
       # So we are testing this without this mutex.
       #@mutexes_by_bucket[bucket_symbol].synchronize do
-      yield @clients_by_bucket[bucket_name]
+      yield @clients_by_bucket[bucket_symbol]
       #end
     end
 
