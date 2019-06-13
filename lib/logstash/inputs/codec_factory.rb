@@ -10,7 +10,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       @default_codec = options[:default_codec]
       @codec_by_folder = options[:codec_by_folder]
       @codecs = {
-        'default' => get_codec_plugin(@default_codec, { 'charset' => 'UTF-8' })
+        'default' => @default_codec
       }
     end
 

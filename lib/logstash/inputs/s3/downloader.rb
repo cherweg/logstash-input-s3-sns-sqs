@@ -17,6 +17,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def copy_s3object_to_disk(record)
       # (from docs) WARNING:
       # yielding data to a block disables retries of networking errors!
+      @logger.debug("start a download")
       File.open(record[:local_file], 'wb') do |file|
         return false if stop?
         begin

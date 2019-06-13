@@ -101,6 +101,7 @@ Aws.eager_autoload!
 class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
 
+
   config_name "s3snssqs"
 
   default :codec, "plain"
@@ -198,7 +199,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           types[entry['key']] = entry['type'] if entry.key?('type')
         end
         @codec_by_folder[bucket] = folders unless folders.empty?
-        @codec_by_folder[bucket] = types unless types.empty?
+        @type_by_folder[bucket] = types unless types.empty?
       end
     end
 
@@ -263,10 +264,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     Thread.new do
       @logger.info("Starting new worker thread")
       @sqs_poller.run do |record|
+        @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
-        record[:local_file] = File.join(@tempdir, File.basename(key))
+        record[:local_file] = File.join(@tempdir, File.basename(record[:key]))
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
+            @logger.debug("begin processing file")
             @log_processor.process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
