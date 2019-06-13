@@ -119,16 +119,17 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     private
 
     def preprocess(message)
-      @logger.debug("Inside Preprocess: Start", :message => message)
+      @logger.info("Inside Preprocess: Start", :message => message)
       payload = JSON.parse(message.body)
       payload = JSON.parse(payload['Message']) if @from_sns
+      @logger.info("Payload in Preprocess: ", :payload => payload)
       return nil unless payload['Records']
       payload['Records'].each do |record|
-        @logger.debug("We found a record", :record => record)
+        @logger.info("We found a record", :record => record)
         # in case there are any events with Records that aren't s3 object-created events and can't therefore be
         # processed by this plugin, we will skip them and remove them from queue
         if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
-          @logger.debug("record is valid")
+          @logger.info("record is valid")
           yield({
             bucket: CGI.unescape(record['s3']['bucket']['name']),
             key: CGI.unescape(record['s3']['object']['key']),

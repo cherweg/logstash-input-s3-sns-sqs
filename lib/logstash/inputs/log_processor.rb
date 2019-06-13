@@ -17,7 +17,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       file = record[:local_file]
       codec = @codec_factory.get_codec(record)
       type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
-      @logger.debug('Processing file', :filename => file)
+      @logger.info('Processing file', :filename => file)
       metadata = {}
       read_file(file) do |line|
         if stop?
