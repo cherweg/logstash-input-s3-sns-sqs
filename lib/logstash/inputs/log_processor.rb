@@ -122,6 +122,9 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         metadata[:cloudfront_fields] = line.split(/#Fields: (.+)/).last
       end
     end
-
+    
+    def stop?
+      @stopped
+    end
   end
 end;end;end

@@ -53,5 +53,8 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       end
     end
 
+    def stop?
+      @stopped
+    end
   end # class
 end;end;end
