@@ -16,6 +16,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def process(record, logstash_event_queue)
       file = record[:local_file]
       codec = @codec_factory.get_codec(record)
+      folder = @codec_factory.get_type_folder(record[:key])
       type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
       @logger.info('Processing file', :filename => file)
       metadata = {}

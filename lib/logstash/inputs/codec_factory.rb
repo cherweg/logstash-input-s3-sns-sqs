@@ -23,6 +23,16 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       return @codecs[codec]
     end
 
+    def get_type_folder(key)
+      # TEST THIS!
+      # if match = /.*\/?(?<type_folder>)\/[^\/]*.match(key)
+      #   return match['type_folder']
+      # end
+      folder = ::File.dirname(key)
+      return '' if folder == '.'
+      return folder
+    end
+
     private
 
     def find_codec(record)
@@ -34,16 +44,6 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         end
       end
       return 'default'
-    end
-
-    def get_type_folder(key)
-      # TEST THIS!
-      # if match = /.*\/?(?<type_folder>)\/[^\/]*.match(key)
-      #   return match['type_folder']
-      # end
-      folder = File.dirname(key)
-      return '' if folder == '.'
-      return folder
     end
 
     def get_codec_plugin(name, options = {})
