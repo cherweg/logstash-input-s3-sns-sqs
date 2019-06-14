@@ -35,8 +35,9 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
     # initialization and setup happens once, outside the threads:
     #
-    def initialize(logger, sqs_queue, options = {}, aws_options_hash)
+    def initialize(logger, stop_semaphore, sqs_queue, options = {}, aws_options_hash)
       @logger = logger
+      @stopped = stop_semaphore
       @queue = sqs_queue
       # @stopped = false # FIXME: needed per thread?
       @from_sns = options[:from_sns]
@@ -107,17 +108,11 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       end
     end
 
-    # FIXME: this is not called at all, and not needed if "stop?" works as expected
-    #
-    def stop
-      @stopped = true # FIXME: needed per thread?
-    end
+    private
 
     def stop?
-      @stopped
+      @stopped.value
     end
-
-    private
 
     def preprocess(message)
       @logger.debug("Inside Preprocess: Start", :message => message)
@@ -187,9 +182,5 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       return folder
     end
 
-    # FIXME: really override? makes it necessary to call "stop()" above from outside
-    # def stop?
-    #   @stopped
-    # end
   end
 end;end;end
