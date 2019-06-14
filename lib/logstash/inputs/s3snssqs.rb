@@ -195,6 +195,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         folders = hash_key_is_regex({})
         types = hash_key_is_regex({})
         options['folders'].each do |entry|
+          @logger.info("options for folder ", :folder => entry)
           folders[entry['key']] = entry['codec'] if entry.key?('codec')
           types[entry['key']] = entry['type'] if entry.key?('type')
         end

@@ -55,7 +55,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       return Aws::AssumeRoleCredentials.new(
           client: @sts_client,
           role_arn: credentials['role'],
-          role_session_name: @s3_role_session_name
+          role_session_name: @default_session_name
       ) if credentials['role']
     end
 

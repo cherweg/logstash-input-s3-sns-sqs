@@ -96,6 +96,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
             end
           rescue Exception => e
             @logger.warn("Error in poller loop", :error => e)
+            @logger.warn("Backtrace:\n\t#{e.backtrace.join("\n\t")}")
             failed = true
           end
           # at this time the extender has either fired or is obsolete
