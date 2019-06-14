@@ -16,7 +16,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def process(record, logstash_event_queue)
       file = record[:local_file]
       codec = @codec_factory.get_codec(record)
-      folder = @codec_factory.get_type_folder(record[:key])
+      folder = record[:folder]
       type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
       @logger.info('Processing file', :filename => file)
       metadata = {}
@@ -34,7 +34,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         @logger.debug("End of file #{file}")
         # ensure any stateful codecs (such as multi-line ) are flushed to the queue
         codec.flush do |event|
-          decorate_event(event, metadata, type, record[:key], record[:bucket])
+          decorate_event(event, metadata, type, record[:key], record[:bucket], record[:folder])
           @logger.debug("We are about to flush an incomplete event...", :event => event)
           logstash_event_queue << event
         end
@@ -60,7 +60,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         event.set("[@metadata][s3][object_key]", key)
         event.set("[@metadata][s3][bucket_name]", bucket)
         event.set("[@metadata][s3][object_folder]", folder)
-        @logger.debug('add metadata', :object_key => key, :bucket => bucket, :folder => folder)
+        @logger.info('queueing event', :object_key => key, :bucket => bucket, :folder => folder)
         queue << event
       end
     end
