@@ -81,7 +81,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
       run_with_backoff do
         @poller.poll(@options) do |message|
-          @logger.info("Inside Poller: polled message", :message => message)
+          @logger.debug("Inside Poller: polled message", :message => message)
           # auto-double the timeout if processing takes too long:
           extender = Thread.new do
             sleep message_backoff
@@ -91,7 +91,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
           failed = false
           begin
             preprocess(message) do |record|
-              @logger.info("we got a record", :record => record)
+              @logger.debug("we got a record", :record => record)
               yield(record) #unless record.nil? - unnecessary; implicit
             end
           rescue Exception => e
@@ -120,21 +120,25 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     private
 
     def preprocess(message)
-      @logger.info("Inside Preprocess: Start", :message => message)
+      @logger.debug("Inside Preprocess: Start", :message => message)
       payload = JSON.parse(message.body)
       payload = JSON.parse(payload['Message']) if @from_sns
-      @logger.info("Payload in Preprocess: ", :payload => payload)
+      @logger.debug("Payload in Preprocess: ", :payload => payload)
       return nil unless payload['Records']
       payload['Records'].each do |record|
-        @logger.info("We found a record", :record => record)
+        @logger.debug("We found a record", :record => record)
         # in case there are any events with Records that aren't s3 object-created events and can't therefore be
         # processed by this plugin, we will skip them and remove them from queue
         if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
-          @logger.info("record is valid")
+          @logger.debug("record is valid")
+          bucket  = CGI.unescape(record['s3']['bucket']['name'])
+          key     = CGI.unescape(record['s3']['object']['key'])
+          size    = record['s3']['object']['size']
           yield({
-            bucket: CGI.unescape(record['s3']['bucket']['name']),
-            key: CGI.unescape(record['s3']['object']['key']),
-            size: record['s3']['object']['size']
+            bucket: bucket,
+            key: key,
+            size: size,
+            folder: get_type_folder(key)
           })
 
           # -v- this stuff goes into s3 and processor handling: -v-
@@ -171,6 +175,16 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         next_sleep = next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
         retry
       end
+    end
+
+    def get_type_folder(key)
+      # TEST THIS!
+      # if match = /.*\/?(?<type_folder>)\/[^\/]*.match(key)
+      #   return match['type_folder']
+      # end
+      folder = ::File.dirname(key)
+      return '' if folder == '.'
+      return folder
     end
 
     # FIXME: really override? makes it necessary to call "stop()" above from outside
