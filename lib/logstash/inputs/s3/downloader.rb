@@ -26,7 +26,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
           )
         end
       rescue Aws::S3::Errors::ServiceError => e
-        @logger.error("Unable to download file. Requeuing the message", :record => record)
+        @logger.error("Unable to download file. Requeuing the message", :error => e, :record => record)
         # prevent sqs message deletion
         throw :skip_delete
       end
