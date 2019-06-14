@@ -270,7 +270,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         @logger.info("Outside Poller: Add local_file", :record => record)
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
-            @logger.info("begin processing file")
+            @logger.info("Outside Processor: begin processing file")
             @log_processor.process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
