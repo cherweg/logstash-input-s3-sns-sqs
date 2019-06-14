@@ -5,8 +5,8 @@ require 'logstash/inputs/mime/magic_gzip_validator'
 require "logstash/inputs/threadable"
 
 
-module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
-  class LogProcessor
+module LogStash module Inputs class S3SNSSQS
+  class LogProcessor < LogStash::Inputs::Base
     def initialize(logger, options)
       @logger = logger
       @codec_factory = options[:codec_factory]
@@ -52,7 +52,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       else
         # type by folder - set before "decorate()" enforces default
         event.set('type', type) if type && !event.include?('type')
-        decorate(event)
+        S3SNSSQS::decorate(event)
 
         event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
         event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
@@ -77,14 +77,17 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       zipped = gzip?(filename)
       file_stream = FileInputStream.new(filename)
       if zipped
+        @logger.info("Read_File zipped", :file => filename)
         gzip_stream = GZIPInputStream.new(file_stream)
         decoder = InputStreamReader.new(gzip_stream, 'UTF-8')
       else
+        @logger.info("Read_File unzipped", :file => filename)
         decoder = InputStreamReader.new(file_stream, 'UTF-8')
       end
       buffered = BufferedReader.new(decoder)
 
       while (line = buffered.readLine())
+        #@logger.info("yield line", :line => line)
         yield(line)
       end
       completed = true
