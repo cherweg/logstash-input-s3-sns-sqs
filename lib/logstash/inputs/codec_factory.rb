@@ -38,12 +38,10 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     def find_codec(record)
       bucket, key = record[:bucket], record[:key]
       @logger.info("trying to find codec config", :bucket => bucket, :codec_by_folder =>  @codec_by_folder["#{bucket}"])
-      if @codec_by_folder[bucket]
+      if @codec_by_folder.key?(bucket)
         folder = get_type_folder(key)
-        @logger.info("trying to find codec for foler #{folder}", :codec =>  @codec_by_folder[bucket].key?(folder))
-        if @codec_by_folder[bucket].key?(folder)
-          return @codec_by_folder[bucket][folder]
-        end
+        @logger.info("trying to find codec for folder #{folder}", :codec =>  @codec_by_folder[bucket].key?(folder))
+        return @codec_by_folder[bucket][folder] unless @codec_by_folder[bucket][folder].nil?
       end
       return 'default'
     end
