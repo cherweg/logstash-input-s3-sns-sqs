@@ -264,7 +264,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     Thread.new do
       @logger.info("Starting new worker thread")
       @sqs_poller.run do |record|
-        @logger.info("Outside Poller: got a record", :record => record)
+        @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
         @logger.info("Outside Poller: Add local_file", :record => record)
