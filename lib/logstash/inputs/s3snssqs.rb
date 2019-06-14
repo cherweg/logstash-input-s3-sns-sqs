@@ -3,13 +3,15 @@ require "logstash/inputs/threadable"
 require "logstash/namespace"
 require "logstash/timestamp"
 require "logstash/plugin_mixins/aws_config"
+require "logstash/shutdown_watcher"
 require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
 # "object-oriented interfaces on top of API clients"...
 # => Overhead. FIXME: needed?
-require "aws-sdk-resources"
+#require "aws-sdk-resources"
 require "fileutils"
+require "concurrent"
 # unused in code:
 #require "stud/interval"
 #require "digest/md5"
@@ -28,7 +30,7 @@ require_relative 'sqs/poller'
 require_relative 's3/client_factory'
 require_relative 's3/downloader'
 require_relative 'codec_factory'
-require_relative 'log_processor'
+require_relative 's3snssqs/log_processor'
 
 Aws.eager_autoload!
 
@@ -100,11 +102,13 @@ Aws.eager_autoload!
 #
 class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
-
+  include LogProcessor
 
   config_name "s3snssqs"
 
   default :codec, "plain"
+
+
 
   # Future config might look somewhat like this:
   #
@@ -172,6 +176,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # To run in multiple threads use this
   config :consumer_threads, :validate => :number, :default => 1
 
+
   public
 
   # --- BEGIN plugin interface ----------------------------------------#
@@ -204,8 +209,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
     end
 
+    @received_stop = Concurrent::AtomicBoolean.new(false)
+
     # instantiate helpers
-    @sqs_poller = SqsPoller.new(@logger, @queue, {
+    @sqs_poller = SqsPoller.new(@logger, @received_stop, @queue, {
       queue_owner_aws_account_id: @queue_owner_aws_account_id,
       from_sns: @from_sns,
       sqs_explicit_delete: @sqs_explicit_delete,
@@ -216,7 +223,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       s3_credentials_by_bucket: @credentials_by_bucket,
       s3_role_session_name: @s3_role_session_name
     }, aws_options_hash)
-    @s3_downloader = S3Downloader.new(@logger, {
+    @s3_downloader = S3Downloader.new(@logger, @received_stop, {
       s3_client_factory: @s3_client_factory,
       delete_on_success: @delete_on_success
     })
@@ -224,10 +231,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       default_codec: @codec,
       codec_by_folder: @codec_by_folder
     })
-    @log_processor = LogProcessor.new(@logger, {
-      codec_factory: @codec_factory,
-      type_by_folder: @type_by_folder
-    })
+    #@log_processor = LogProcessor.new(self)
 
     # administrative stuff
     @worker_threads = []
@@ -235,6 +239,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # startup
   def run(logstash_event_queue)
+    #LogStash::ShutdownWatcher.abort_threshold(30)
     # start them
     @worker_threads = @consumer_threads.times.map do |_|
       run_worker_thread(logstash_event_queue)
@@ -245,6 +250,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # shutdown
   def stop
+    @received_stop.make_true
     @worker_threads.each do |worker|
       begin
         @logger.info("Stopping thread ... ", :thread => worker.inspect)
@@ -264,6 +270,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     Thread.new do
       @logger.info("Starting new worker thread")
       @sqs_poller.run do |record|
+        throw :skip_delete if stop?
         @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
@@ -271,7 +278,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
             @logger.info("Outside Processor: begin processing file")
-            @log_processor.process(record, queue)
+            process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
           # re-throw if necessary:
@@ -295,6 +302,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
     # return input hash (convenience)
     return myhash
+  end
+
+  def stop?
+    @received_stop.value
   end
 
 end # class
