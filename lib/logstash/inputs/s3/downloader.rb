@@ -7,8 +7,9 @@ require "logstash/inputs/threadable"
 module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
   class S3Downloader
 
-    def initialize(logger, options)
+    def initialize(logger, stop_semaphore, options)
       @logger = logger
+      @stopped = stop_semaphore
       @factory = options[:s3_client_factory]
       @delete_on_success = options[:delete_on_success]
     end
@@ -30,6 +31,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         # prevent sqs message deletion
         throw :skip_delete
       end
+      throw :skip_delete if stop?
       return true
     end
 
@@ -51,7 +53,8 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
     end
 
     def stop?
-      @stopped
+      @stopped.value
     end
+
   end # class
 end;end;end
