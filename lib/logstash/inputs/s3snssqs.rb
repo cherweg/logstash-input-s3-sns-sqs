@@ -223,7 +223,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         folders = hash_key_is_regex({})
         types = hash_key_is_regex({})
         options['folders'].each do |entry|
-          @logger.info("options for folder ", :folder => entry)
+          @logger.debug("options for folder ", :folder => entry)
           folders[entry['key']] = entry['codec'] if entry.key?('codec')
           types[entry['key']] = entry['type'] if entry.key?('type')
         end
@@ -297,10 +297,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
-        @logger.info("Outside Poller: Add local_file", :record => record)
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
-            @logger.info("Outside Processor: begin processing file")
             process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
