@@ -27,7 +27,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
         if @clients_by_bucket[bucket_symbol].nil?
           options = @aws_options_hash
           @logger.info("Trying to merge aws options", :before_options => options, :bucket_options => @credentials_by_bucket[bucket_name])
-          if @credentials_by_bucket.key?(bucket_name)
+          unless @credentials_by_bucket[bucket_name].nil?
             options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
             @logger.info("Merged aws options", :used_options => options)
           end
