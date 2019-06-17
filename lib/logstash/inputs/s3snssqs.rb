@@ -142,22 +142,15 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #     ]
   #   }
   # }
-  #
-  ### s3 -> TODO: replace by options for multiple buckets
-  #config :s3_key_prefix, :validate => :string, :default => ''
-  #Sometimes you need another key for s3. This is a first test...
-  #config :s3_access_key_id, :validate => :string
-  #config :s3_secret_access_key, :validate => :string
-  #config :set_role_by_bucket, :validate => :hash, :default => {}
-  #If you have different file-types in you s3 bucket, you could define codec by folder
-  #set_codec_by_folder => {"My-ELB-logs" => "plain"}
-  #config :set_codec_by_folder, :validate => :hash, :default => {}
-  # The AWS IAM Role to assume, if any.
-  # This is used to generate temporary credentials typically for cross-account access.
-  # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
-  #config :s3_role_arn, :validate => :string
+
+  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true, :obsolete => "Never functional. Removed"
+  config :s3_access_key_id, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_secret_access_key, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :set_role_by_bucket, :validate => :hash, :default => {}, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :set_codec_by_folder, :validate => :hash, :default => {}, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_role_arn, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
   # We need a list of buckets, together with role arns and possible folder/codecs:
-  config :s3_options_by_bucket, :validate => :array, :required => true
+  config :s3_options_by_bucket, :validate => :array, :required => false
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
 
@@ -186,10 +179,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
 
-    @credentials_by_bucket = {}
+    @credentials_by_bucket = hash_key_is_regex({})
     # create the bucket=>folder=>codec lookup from config options
-    @codec_by_folder = {}
-    @type_by_folder = {}
+    @codec_by_folder = hash_key_is_regex({})
+    @type_by_folder = hash_key_is_regex({})
     @s3_options_by_bucket.each do |options|
       bucket = options['bucket_name']
       if options.key?('credentials')
