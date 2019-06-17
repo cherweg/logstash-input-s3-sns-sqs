@@ -16,7 +16,6 @@ module LogProcessor
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
     type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
-    @logger.info('Processing file', :filename => file)
     metadata = {}
     read_file(file) do |line|
       if stop?
@@ -25,16 +24,13 @@ module LogProcessor
       end
       line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
       codec.decode(line) do |event|
-        @logger.debug("decorate event")
         decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-        @logger.info('queue event', :event => event)
         logstash_event_queue << event
       end
-      @logger.debug("End of file #{file}")
       # ensure any stateful codecs (such as multi-line ) are flushed to the queue
       codec.flush do |event|
         decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-        @logger.debug("We are about to flush an incomplete event...", :event => event)
+        @logger.debug("Flushing an incomplete event", :event => event)
         logstash_event_queue << event
       end
     end
@@ -46,7 +42,7 @@ module LogProcessor
 
   def decorate_event(event, metadata, type, key, bucket, folder)
     if event_is_metadata?(event)
-      @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
+      @logger.debug('Updating the current cloudfront metadata', :event => event)
       update_metadata(metadata, event)
     else
       # type by folder - set before "decorate()" enforces default
@@ -66,7 +62,7 @@ module LogProcessor
     return true if filename.end_with?('.gz','.gzip')
     MagicGzipValidator.new(File.new(filename, 'rb')).valid?
   rescue Exception => e
-    @logger.debug("Problem while gzip detection", :error => e)
+    @logger.warn("Problem while gzip detection", :error => e)
   end
 
   def read_file(filename)
@@ -74,17 +70,14 @@ module LogProcessor
     zipped = gzip?(filename)
     file_stream = FileInputStream.new(filename)
     if zipped
-      @logger.info("Read_File zipped", :file => filename)
       gzip_stream = GZIPInputStream.new(file_stream)
       decoder = InputStreamReader.new(gzip_stream, 'UTF-8')
     else
-      @logger.info("Read_File unzipped", :file => filename)
       decoder = InputStreamReader.new(file_stream, 'UTF-8')
     end
     buffered = BufferedReader.new(decoder)
 
     while (line = buffered.readLine())
-      #@logger.info("yield line", :line => line)
       yield(line)
     end
     completed = true
