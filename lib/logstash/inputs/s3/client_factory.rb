@@ -13,11 +13,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
       @sts_client = Aws::STS::Client.new(region: options[:aws_region])
       # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)
       @credentials_by_bucket = options[:s3_credentials_by_bucket]
-      @logger.info("Credetials by Bucket", :credentials => @credentials_by_bucket)
-      # lazy-init this as well:
-      # @credentials_by_bucket = @options_by_bucket.map { |bucket, options|
-      #   [bucket.to_sym, assume_s3_role(options['credentials'])]
-      # }.to_h
+      @logger.debug("Credentials by Bucket", :credentials => @credentials_by_bucket)
       @default_session_name = options[:s3_role_session_name]
       @clients_by_bucket = {}
       #@mutexes_by_bucket = {}
@@ -32,7 +28,7 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
           options = @aws_options_hash
           @logger.info("Trying to merge aws options", :before_options => options, :bucket_options => @credentials_by_bucket[bucket_name])
           if @credentials_by_bucket.key?(bucket_name)
-            options.merge!(credentials: assume_s3_role(@credentials_by_bucket[bucket_name]))
+            options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
             @logger.info("Merged aws options", :used_options => options)
           end
           @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
@@ -53,14 +49,19 @@ module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 
     private
 
-    def assume_s3_role(credentials)
+    def get_s3_auth(credentials)
       # reminder: these are auto-refreshing!
-      @logger.info("Assume Role", :credentials => credentials["role"])
-      return Aws::AssumeRoleCredentials.new(
+      if credentials.key?('role')
+        @logger.info("Assume Role", :role => credentials["role"])
+        return Aws::AssumeRoleCredentials.new(
           client: @sts_client,
           role_arn: credentials['role'],
           role_session_name: @default_session_name
-      ) if credentials['role']
+        )
+      elsif credentials.key?('access_key_id') && credentials.key?('secret_access_key')
+        @logger.info("Fetch credentials", :access_key => credentials['access_key_id'])
+        return Aws::Credentials.new(credentials)
+      end
     end
 
   end # class

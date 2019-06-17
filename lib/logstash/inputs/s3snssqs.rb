@@ -143,14 +143,17 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #   }
   # }
 
-  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true, :obsolete => "Never functional. Removed"
-  config :s3_access_key_id, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
-  config :s3_secret_access_key, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
-  config :set_role_by_bucket, :validate => :hash, :default => {}, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
-  config :set_codec_by_folder, :validate => :hash, :default => {}, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
-  config :s3_role_arn, :validate => :string, :deprecated => true, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true #, :obsolete => "Never functional. Removed"
+
+  config :s3_access_key_id, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_secret_access_key, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_role_arn, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+
+  config :set_codec_by_folder, :validate => :hash, :default => {}, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+
   # We need a list of buckets, together with role arns and possible folder/codecs:
-  config :s3_options_by_bucket, :validate => :array, :required => false
+  config :s3_options_by_bucket, :validate => :array, :required => false # TODO: true
+
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
 
@@ -183,6 +186,33 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # create the bucket=>folder=>codec lookup from config options
     @codec_by_folder = hash_key_is_regex({})
     @type_by_folder = hash_key_is_regex({})
+
+    # use deprecated settings only if new config is missing:
+    if @s3_options_by_bucket.nil?
+      credentials = {}
+      if @s3_role_arn.nil?
+        # access key/secret key pair needed
+        unless @s3_access_key_id.nil? or @s3_secret_access_key.nil?
+          credentials = {
+            'access_key_id' => @s3_access_key_id,
+            'secret_access_key' => @s3_secret_access_key
+          }
+        end
+      else
+        credentials = {
+          'role' => @s3_role_arn
+        }
+      end
+      # We don't know any bucket name, so we must rely on a "catch-all" regex
+      @s3_options_by_bucket = [{
+        'bucket_name' => '.*',
+        'credentials' => credentials,
+        'folders' => @set_codec_by_folder.map { |key, codec|
+          { 'key' => key, 'codec' => codec }
+        }
+      }]
+    end
+
     @s3_options_by_bucket.each do |options|
       bucket = options['bucket_name']
       if options.key?('credentials')
