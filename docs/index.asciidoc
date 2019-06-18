@@ -1,0 +1,194 @@
+:plugin: logstash-input-s3-sns-sqs
+:type: input
+:default_codec: json
+
+///////////////////////////////////////////
+START - GENERATED VARIABLES, DO NOT EDIT!
+///////////////////////////////////////////
+:version: %VERSION%
+:release_date: %RELEASE_DATE%
+:changelog_url: %CHANGELOG_URL%
+:include_path: ../../../../logstash/docs/include
+///////////////////////////////////////////
+END - GENERATED VARIABLES, DO NOT EDIT!
+///////////////////////////////////////////
+
+[id="plugins-{type}s-{plugin}"]
+
+=== S3 input plugin (via SNS/SQS)
+
+include::{include_path}/plugin_header.asciidoc[]
+
+==== Description
+
+.Compatibility Note
+[NOTE]
+================================================================================
+Starting with Elasticsearch 5.3, there's an {ref}/modules-http.html[HTTP setting]
+called `http.content_type.required`. If this option is set to `true`, and you
+are using Logstash 2.4 through 5.2, you need to update the Elasticsearch input
+plugin to version 4.0.2 or higher.
+
+================================================================================
+
+Read from an S3 bucket, based metadata read from an SQS Topic.
+This is useful for reading files from an S3 bucket at scale with 
+multiple logstash instances.
+
+Example:
+[source,ruby]
+    input {
+      s3snssqs {
+        region                     => "eu-central-1"
+        queue                      => "logingest-live-pa-logs"
+        set_codec_by_folder => {"My-ELB-logs" => "plain"}
+      	consumer_threads           => 3
+      	queue_owner_aws_account_id => "23130122323"
+      	s3_role_arn                => "arn:aws:iam::1212443434:role/read-logs-role"
+  }
+
+==== S3-SNS-SQS Input Configuration Options
+
+This plugin supports the following configuration options plus the <<plugins-{type}s-{plugin}-common-options>> described later.
+
+[cols="<,<,<",options="header",]
+|=======================================================================
+|Setting |Input type|Required
+| <<plugins-{type}s-{plugin}-queue>> |a valid queue name|Yes
+| <<plugins-{type}s-{plugin}-s3_key_prefix>>|<<string,string>>|No
+| <<plugins-{type}s-{plugin}-s3_access_key_id>>|<<string,string>>|No
+| <<plugins-{type}s-{plugin}-s3_secret_access_key>>|<<string,string>>|No
+| <<plugins-{type}s-{plugin}-queue_owner_aws_account_id>> |<<string,string>>|No
+| <<plugins-{type}s-{plugin}-set_codec_by_folder>> |<<hash,hash>>|No
+| <<plugins-{type}s-{plugin}-delete_on_success>>|<<boolean,boolean>>|No
+| <<plugins-{type}s-{plugin}-from_sns>> |<<boolean,boolean>>|No
+| <<plugins-{type}s-{plugin}-consumer_threads>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
+| <<plugins-{type}s-{plugin}-s3_role_arn>> |<<string,string>>|No
+| <<plugins-{type}s-{plugin}-s3_role_session_name>> |<<string,string>>|No
+| <<plugins-{type}s-{plugin}-visibility_timeout>> |<<number,number>>|No
+|=======================================================================
+
+Also see <<plugins-{type}s-{plugin}-common-options>> for a list of options supported by all
+input plugins.
+
+&nbsp;
+
+[id="plugins-{type}s-{plugin}-queue"]
+===== `queue` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+a valid SQS queue name
+
+[id="plugins-{type}s-{plugin}-s3_key_prefix"]
+===== `s3_key_prefix` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+If your logs are in an subfolder, only process these files
+
+[id="plugins-{type}s-{plugin}-s3_access_key_id"]
+===== `s3_access_key_id` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+Sometimes you need another key for s3 access
+
+[id="plugins-{type}s-{plugin}-s3_secret_access_key"]
+===== `s3_secret_access_key` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+Sometimes you need another key for s3 access
+
+[id="plugins-{type}s-{plugin}-queue_owner_aws_account_id"]
+===== `queue_owner_aws_account_id` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+Do you need to change the aws account?
+
+[id="plugins-{type}s-{plugin}-set_codec_by_folder"]
+===== `set_codec_by_folder` 
+
+  * Value type is <<hash,hash>>
+  * There is no default value for this setting.
+
+If you have different formats (json, plain) in you subfolders 
+you could overwrite you default by folder.
+
+Example:
+    input {
+      s3snssqs {
+        queue                      => "logingest-live-pa-logs"
+        set_codec_by_folder        => {"My-ELB-logs" => "plain", "MY-JSON-LOGS" => "json"}
+  }
+
+[id="plugins-{type}s-{plugin}-delete_on_success"]
+===== `delete_on_success` 
+
+  * Value type is <<boolean,boolean>>
+  * There is no default value for this setting.
+
+delete files from S3 after success
+
+[id="plugins-{type}s-{plugin}-from_sns"]
+===== `from_sns` 
+
+  * Value type is <<boolean,boolean>>
+  * Default: true
+
+The message format is different, if the message comes from SNS.
+
+[id="plugins-{type}s-{plugin}-consumer_threads"]
+===== `consumer_threads` 
+
+  * Value type is <<number,number>>
+  * Default: 1
+
+How many SQS reader should be started
+
+[id="plugins-{type}s-{plugin}-temporary_directory"]
+===== `temporary_directory` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+Your tmp dir
+
+[id="plugins-{type}s-{plugin}-s3_role_arn"]
+===== `s3_role_arn` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+For e.g. AWS ALB Logs you need to be a member of the aws account providing the logs.
+
+[id="plugins-{type}s-{plugin}-s3_role_session_name"]
+===== `s3_role_session_name` 
+
+  * Value type is <<string,string>>
+  * There is no default value for this setting.
+
+Need a specific session name?
+
+[id="plugins-{type}s-{plugin}-visibility_timeout"]
+===== `visibility_timeout` 
+
+  * Value type is <<number,number>>
+  * Default: 5 Minutes.
+
+The maximum processing time for an S3 File. If there is no 
+"exit 0, successfull" from the codeblock the SQS message will be
+reprocessed.
+
+[id="plugins-{type}s-{plugin}-common-options"]
+include::{include_path}/{type}.asciidoc[]
+
+:default_codec!:
