@@ -1,6 +1,9 @@
 ##2.0.0
 Breaking Changes:
+- s3_key_prefix was never functional and will be removed
+  config for s3 paths are regex (if not exact match)
 - s3_options_by_bucket substitutes all s3_* options
+  We will merge deprecated options into the new structure for one release
 Changes:
 - Refactor plugin structure to be more modular 
 - Rework threadding design
