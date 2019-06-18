@@ -27,12 +27,12 @@ module LogProcessor
         decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
         logstash_event_queue << event
       end
-      # ensure any stateful codecs (such as multi-line ) are flushed to the queue
-      codec.flush do |event|
-        decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-        @logger.debug("Flushing an incomplete event", :event => event)
-        logstash_event_queue << event
-      end
+    end
+    # ensure any stateful codecs (such as multi-line ) are flushed to the queue
+    codec.flush do |event|
+      decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+      @logger.debug("Flushing an incomplete event", :event => event.to_s)
+      logstash_event_queue << event
     end
     # signal completion:
     return true
