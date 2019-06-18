@@ -16,7 +16,6 @@ class CodecFactory
 
   def get_codec(record)
     codec = find_codec(record)
-    @logger.info("Using Codec:", :code => codec)
     if @codecs[codec].nil?
       @codecs[codec] = get_codec_plugin(codec)
     end
