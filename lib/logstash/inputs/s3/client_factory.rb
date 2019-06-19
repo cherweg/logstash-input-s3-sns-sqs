@@ -9,6 +9,7 @@ class S3ClientFactory
   def initialize(logger, options, aws_options_hash)
     @logger = logger
     @aws_options_hash = aws_options_hash
+    @s3_client_options: options[:s3_client_options]
     # FIXME: region per bucket?
     @sts_client = Aws::STS::Client.new(region: options[:aws_region])
     # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)
@@ -26,6 +27,7 @@ class S3ClientFactory
 
       if @clients_by_bucket[bucket_symbol].nil?
         options = @aws_options_hash
+        options.merge!(@s3_client_options) unless @s3_client_options.empty?
         unless @credentials_by_bucket[bucket_name].nil?
           options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
         end
