@@ -1,10 +1,7 @@
 # encoding: utf-8
 require 'fileutils'
 require 'thread'
-require "logstash/inputs/threadable"
-#require "logstash/inputs/s3/remote_file"
 
-#module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 class S3Downloader
 
   def initialize(logger, stop_semaphore, options)
@@ -56,4 +53,3 @@ class S3Downloader
   end
 
 end # class
-#end;end;end
