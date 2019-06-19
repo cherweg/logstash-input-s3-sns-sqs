@@ -2,8 +2,6 @@
 # reads and decodes locally available file with log lines
 # and creates LogStash events from these
 require 'logstash/inputs/mime/magic_gzip_validator'
-require "logstash/inputs/threadable"
-
 
 module LogProcessor
 
