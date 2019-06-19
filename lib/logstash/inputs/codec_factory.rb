@@ -1,9 +1,6 @@
 # CodecFactory:
 # lazy-fetch codec plugins
-# (FIXME: is this thread-safe?)
-require "logstash/inputs/threadable"
 
-#module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 class CodecFactory
   def initialize(logger, options)
     @logger = logger
@@ -38,4 +35,3 @@ class CodecFactory
     LogStash::Plugin.lookup('codec', name).new(options)
   end
 end
-#end;end;end
