@@ -1,20 +1,15 @@
 # not needed - Mutex is part of core lib:
 #require 'thread'
-require "logstash/inputs/threadable"
 
-
-#module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 class S3ClientFactory
 
   def initialize(logger, options, aws_options_hash)
     @logger = logger
     @aws_options_hash = aws_options_hash
-    @s3_client_options = Hash[options[:s3_client_options].map{|(k,v)| [k.to_sym,v]}]
+    @s3_default_options = Hash[options[:s3_default_options].map { |k, v| [k.to_sym, v] }]
     @logger.info("options: ", :used_options => options)
-    @aws_options_hash.merge!(@s3_client_options) unless @s3_client_options.empty?
-    # FIXME: region per bucket?
+    @aws_options_hash.merge!(@s3_default_options) unless @s3_default_options.empty?
     @sts_client = Aws::STS::Client.new(region: options[:aws_region])
-    # FIXME: options are non-generic (...by_bucket mixes credentials with folder stuff)
     @credentials_by_bucket = options[:s3_credentials_by_bucket]
     @logger.debug("Credentials by Bucket", :credentials => @credentials_by_bucket)
     @default_session_name = options[:s3_role_session_name]
@@ -26,9 +21,8 @@ class S3ClientFactory
   def get_s3_client(bucket_name)
     bucket_symbol = bucket_name.to_sym
     @creation_mutex.synchronize do
-
       if @clients_by_bucket[bucket_symbol].nil?
-        options = @aws_options_hash
+        options = @aws_options_hash.clone
         unless @credentials_by_bucket[bucket_name].nil?
           options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
         end
@@ -43,8 +37,8 @@ class S3ClientFactory
     #   ... do stuff ...
     # end
     # FIXME: this does not allow concurrent downloads from the same bucket!
-    # So we are testing this without this mutex.
     #@mutexes_by_bucket[bucket_symbol].synchronize do
+    # So we are testing this without this mutex.
     yield @clients_by_bucket[bucket_symbol]
     #end
   end
@@ -67,4 +61,3 @@ class S3ClientFactory
   end
 
 end # class
-#end;end;end
