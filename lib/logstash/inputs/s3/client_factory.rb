@@ -7,7 +7,6 @@ class S3ClientFactory
     @logger = logger
     @aws_options_hash = aws_options_hash
     @s3_default_options = Hash[options[:s3_default_options].map { |k, v| [k.to_sym, v] }]
-    @logger.info("options: ", :used_options => options)
     @aws_options_hash.merge!(@s3_default_options) unless @s3_default_options.empty?
     @sts_client = Aws::STS::Client.new(region: options[:aws_region])
     @credentials_by_bucket = options[:s3_credentials_by_bucket]
@@ -26,9 +25,8 @@ class S3ClientFactory
         unless @credentials_by_bucket[bucket_name].nil?
           options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
         end
-        @logger.info("Create a new S3 Client with options", :used_options => options)
         @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
-        @logger.info("Created a new S3 Client", :bucket_name => bucket_name, :client => @clients_by_bucket[bucket_symbol], :used_options => options)
+        @logger.debug("Created a new S3 Client", :bucket_name => bucket_name, :client => @clients_by_bucket[bucket_symbol], :used_options => options)
         #@mutexes_by_bucket[bucket_symbol] = Mutex.new
       end
     end
