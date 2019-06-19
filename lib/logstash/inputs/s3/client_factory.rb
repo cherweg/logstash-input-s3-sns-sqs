@@ -9,8 +9,8 @@ class S3ClientFactory
   def initialize(logger, options, aws_options_hash)
     @logger = logger
     @aws_options_hash = aws_options_hash
-    @s3_client_options = Hash.new(options[:s3_client_options].map { |k,v| k.to_sym => v })
-    @logger.info("s3_options", :used_options => @s3_client_options)
+    @s3_client_options = Hash[options[:s3_client_options].map{|(k,v)| [k.to_sym,v]}]
+    @logger.info("options: ", :used_options => options)
     @aws_options_hash.merge!(@s3_client_options) unless @s3_client_options.empty?
     # FIXME: region per bucket?
     @sts_client = Aws::STS::Client.new(region: options[:aws_region])
