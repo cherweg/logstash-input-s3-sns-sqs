@@ -154,7 +154,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # We need a list of buckets, together with role arns and possible folder/codecs:
   config :s3_options_by_bucket, :validate => :array, :required => false # TODO: true
   # Default Options for the S3 clients
-  config :s3_client_options, validate => :hash, required => false, :default => {}
+  config :s3_client_options, :validate => :hash, :required => false, :default => {}
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
 
