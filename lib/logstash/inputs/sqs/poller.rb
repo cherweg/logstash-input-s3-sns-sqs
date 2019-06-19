@@ -3,9 +3,7 @@
 # the provided code block on them
 require 'json'
 require 'cgi'
-require "logstash/inputs/threadable"
 
-#module LogStash module Inputs class S3SNSSQS < LogStash::Inputs::Threadable
 class SqsPoller
 
   # queue poller options we want to set explicitly
@@ -183,4 +181,3 @@ class SqsPoller
   end
 
 end
-#end;end;end
