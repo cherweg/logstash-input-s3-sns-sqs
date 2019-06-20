@@ -37,16 +37,33 @@ multiple logstash instances.
 
 Example:
 [source,ruby]
-    input {
-      s3snssqs {
-        region                     => "eu-central-1"
-        queue                      => "logingest-live-pa-logs"
-        set_codec_by_folder => {"My-ELB-logs" => "plain"}
-      	consumer_threads           => 3
-      	queue_owner_aws_account_id => "23130122323"
-      	s3_role_arn                => "arn:aws:iam::1212443434:role/read-logs-role"
+input {
+  s3snssqs {
+    region                     => "eu-central-1"
+    s3_default_options         => { "endpoint_discovery" => true }
+    queue                      => "logingest-sqs-queue"
+    queue_owner_aws_account_id => "111111111111"
+    type                       => "sqs-logs"
+    tags                       => ["pa-alb-nonlive"]
+    sqs_skip_delete            => true
+    codec                      => json
+    s3_options_by_bucket       => [
+        { bucket_name => "logs-bucket-222222222222-.*"
+          credentials => { role => "arn:aws:iam::222222222222:role/logging-role" }
+        },
+        { bucket_name => "logs-bucket-333333333333-eu-central-1"
+          credentials => { role => "arn:aws:iam::333333333333:role/logging-role" }
+          folders => [
+          { key => ".*/waflogs.*"
+            codec => "json_stream"
+            type => "waflogs"},
+          { key => ".*/2020"
+            codec => "json_lines"
+            type => "reports"}]
+        }
+    ]
   }
-
+}
 ==== S3-SNS-SQS Input Configuration Options
 
 This plugin supports the following configuration options plus the <<plugins-{type}s-{plugin}-common-options>> described later.
@@ -55,18 +72,18 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 |=======================================================================
 |Setting |Input type|Required
 | <<plugins-{type}s-{plugin}-queue>> |a valid queue name|Yes
-| <<plugins-{type}s-{plugin}-s3_key_prefix>>|<<string,string>>|No
-| <<plugins-{type}s-{plugin}-s3_access_key_id>>|<<string,string>>|No
-| <<plugins-{type}s-{plugin}-s3_secret_access_key>>|<<string,string>>|No
 | <<plugins-{type}s-{plugin}-queue_owner_aws_account_id>> |<<string,string>>|No
-| <<plugins-{type}s-{plugin}-set_codec_by_folder>> |<<hash,hash>>|No
+| <<plugins-{type}s-{plugin}-s3_options_by_bucket>> |<<array,array>>|No
+| <<plugins-{type}s-{plugin}-s3_default_options>> |<<hash,hash>>|No
+| <<plugins-{type}s-{plugin}-s3_role_session_name>> |<<string,string>>|yes
 | <<plugins-{type}s-{plugin}-delete_on_success>>|<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-from_sns>> |<<boolean,boolean>>|No
-| <<plugins-{type}s-{plugin}-consumer_threads>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-sqs_skip_delete>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
-| <<plugins-{type}s-{plugin}-s3_role_arn>> |<<string,string>>|No
-| <<plugins-{type}s-{plugin}-s3_role_session_name>> |<<string,string>>|No
+| <<plugins-{type}s-{plugin}-consumer_threads>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-visibility_timeout>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
+
 |=======================================================================
 
 Also see <<plugins-{type}s-{plugin}-common-options>> for a list of options supported by all
@@ -82,30 +99,6 @@ input plugins.
 
 a valid SQS queue name
 
-[id="plugins-{type}s-{plugin}-s3_key_prefix"]
-===== `s3_key_prefix` 
-
-  * Value type is <<string,string>>
-  * There is no default value for this setting.
-
-If your logs are in an subfolder, only process these files
-
-[id="plugins-{type}s-{plugin}-s3_access_key_id"]
-===== `s3_access_key_id` 
-
-  * Value type is <<string,string>>
-  * There is no default value for this setting.
-
-Sometimes you need another key for s3 access
-
-[id="plugins-{type}s-{plugin}-s3_secret_access_key"]
-===== `s3_secret_access_key` 
-
-  * Value type is <<string,string>>
-  * There is no default value for this setting.
-
-Sometimes you need another key for s3 access
-
 [id="plugins-{type}s-{plugin}-queue_owner_aws_account_id"]
 ===== `queue_owner_aws_account_id` 
 
@@ -114,21 +107,44 @@ Sometimes you need another key for s3 access
 
 Do you need to change the aws account?
 
-[id="plugins-{type}s-{plugin}-set_codec_by_folder"]
-===== `set_codec_by_folder` 
+[id="plugins-{type}s-{plugin}-s3_options_by_bucket"]
+===== `s3_options_by_bucket` 
 
-  * Value type is <<hash,hash>>
+  * Value type is <<array,array>>
   * There is no default value for this setting.
 
+If you have credentials per s3 bucket you could overwrite the default.
 If you have different formats (json, plain) in you subfolders 
 you could overwrite you default by folder.
 
 Example:
-    input {
-      s3snssqs {
-        queue                      => "logingest-live-pa-logs"
-        set_codec_by_folder        => {"My-ELB-logs" => "plain", "MY-JSON-LOGS" => "json"}
-  }
+    s3_options_by_bucket       => [
+        { bucket_name => "logs-bucket-222222222222-.*"
+          credentials => { role => "arn:aws:iam::222222222222:role/logging-role" }
+        },
+        { bucket_name => "logs-bucket-333333333333-eu-central-1"
+          credentials => { role => "arn:aws:iam::333333333333:role/logging-role" }
+          folders => [
+          { key => ".*/waflogs.*"
+            codec => "json_stream"
+            type => "waflogs"},
+          { key => ".*/2020"
+            codec => "json_lines"
+            type => "reports"}]
+        }
+    ]
+
+[id="plugins-{type}s-{plugin}-s3_default_options"]
+===== `s3_default_options` 
+
+  * Value type is <<hash,hash>>
+  * There is no default value for this setting.
+
+Add default options for the ruby aws s3::Client
+ATTENTION: Dont use symbols for the option key. This will break the logstash config parser.
+
+Example:
+  s3_default_options         => { "endpoint_discovery" => true }
 
 [id="plugins-{type}s-{plugin}-delete_on_success"]
 ===== `delete_on_success` 
