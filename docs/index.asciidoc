@@ -116,6 +116,7 @@ If you have different formats (json, plain) in you subfolders
 you could overwrite you default by folder.
 
 Example:
+[source,ruby]
     s3_options_by_bucket       => [
         { bucket_name => "logs-bucket-222222222222-.*"
           credentials => { role => "arn:aws:iam::222222222222:role/logging-role" }
@@ -142,6 +143,7 @@ Add default options for the ruby aws s3::Client
 ATTENTION: Dont use symbols for the option key. This will break the logstash config parser.
 
 Example:
+[source,ruby]
   s3_default_options         => { "endpoint_discovery" => true }
   
   
