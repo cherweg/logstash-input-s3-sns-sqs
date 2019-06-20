@@ -1,15 +1,20 @@
 # encoding: utf-8
-#
 require "logstash/inputs/threadable"
 require "logstash/namespace"
 require "logstash/timestamp"
 require "logstash/plugin_mixins/aws_config"
+require "logstash/shutdown_watcher"
 require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
-require "stud/interval"
-require 'cgi'
-require 'logstash/inputs/mime/MagicgzipValidator'
+# "object-oriented interfaces on top of API clients"...
+# => Overhead. FIXME: needed?
+#require "aws-sdk-resources"
+require "fileutils"
+require "concurrent"
+# unused in code:
+#require "stud/interval"
+#require "digest/md5"
 
 require 'java'
 java_import java.io.InputStream
@@ -18,6 +23,14 @@ java_import java.io.FileInputStream
 java_import java.io.BufferedReader
 java_import java.util.zip.GZIPInputStream
 java_import java.util.zip.ZipException
+
+# our helper classes
+# these may go into this file for brevity...
+require_relative 'sqs/poller'
+require_relative 's3/client_factory'
+require_relative 's3/downloader'
+require_relative 'codec_factory'
+require_relative 's3snssqs/log_processor'
 
 Aws.eager_autoload!
 
@@ -89,462 +102,216 @@ Aws.eager_autoload!
 #
 class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   include LogStash::PluginMixins::AwsConfig::V2
-
-  BACKOFF_SLEEP_TIME = 1
-  BACKOFF_FACTOR = 2
-  MAX_TIME_BEFORE_GIVING_UP = 60
-  EVENT_SOURCE = 'aws:s3'
-  EVENT_TYPE = 'ObjectCreated'
+  include LogProcessor
 
   config_name "s3snssqs"
 
   default :codec, "plain"
 
-  # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
-  config :queue, :validate => :string, :required => true
-  config :s3_key_prefix, :validate => :string, :default => ''
-  #Sometimes you need another key for s3. This is a first test...
-  config :s3_access_key_id, :validate => :string
-  config :s3_secret_access_key, :validate => :string
-  config :queue_owner_aws_account_id, :validate => :string, :required => false
-  #If you have different file-types in you s3 bucket, you could define codec by folder
-  #set_codec_by_folder => {"My-ELB-logs" => "plain"}
-  config :set_codec_by_folder, :validate => :hash, :default => {}
-  config :delete_on_success, :validate => :boolean, :default => false
-  config :sqs_explicit_delete, :validate => :boolean, :default => false
-  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
-  config :from_sns, :validate => :boolean, :default => true
-  # To run in multiple threads use this
-  config :consumer_threads, :validate => :number
-  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
-  # The AWS IAM Role to assume, if any.
-  # This is used to generate temporary credentials typically for cross-account access.
-  # See https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html for more information.
-  config :s3_role_arn, :validate => :string
+
+
+  # Future config might look somewhat like this:
+  #
+  # s3_options_by_bucket = [
+  #   {
+  #     "bucket_name": "my-beautiful-bucket",
+  #     "credentials": { "role": "aws:role:arn:for:bucket:access" },
+  #     "folders": [
+  #       {
+  #         "key": "my_folder",
+  #         "codec": "json"
+  #         "type": "my_lovely_index"
+  #       },
+  #       {
+  #         "key": "my_other_folder",
+  #         "codec": "json_stream"
+  #         "type": ""
+  #       }
+  #     ]
+  #   },
+  #   {
+  #     "bucket_name": "my-other-bucket"
+  #     "credentials": {
+  #        "access_key_id": "some-id",
+  #        "secret_access_key": "some-secret-key"
+  #     },
+  #     "folders": [
+  #       {
+  #         "key": ""
+  #       }
+  #     ]
+  #   }
+  # }
+
+  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true #, :obsolete => "Never functional. Removed"
+
+  config :s3_access_key_id, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_secret_access_key, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+  config :s3_role_arn, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+
+  config :set_codec_by_folder, :validate => :hash, :default => {}, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
+
+  # Default Options for the S3 clients
+  config :s3_default_options, :validate => :hash, :required => false, :default => {}
+  # We need a list of buckets, together with role arns and possible folder/codecs:
+  config :s3_options_by_bucket, :validate => :array, :required => false # TODO: true
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
+
+  ### sqs
+  # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
+  config :queue, :validate => :string, :required => true
+  config :queue_owner_aws_account_id, :validate => :string, :required => false
+  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
+  config :from_sns, :validate => :boolean, :default => true
+  config :sqs_skip_delete, :validate => :boolean, :default => false
+  config :delete_on_success, :validate => :boolean, :default => false
   config :visibility_timeout, :validate => :number, :default => 600
 
+  ### system
+  config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
+  # To run in multiple threads use this
+  config :consumer_threads, :validate => :number, :default => 1
 
-  attr_reader :poller
-  attr_reader :s3
-
-
-  def set_codec (folder)
-    begin
-      @logger.debug("Automatically switching from #{@codec.class.config_name} to #{set_codec_by_folder[folder]} codec", :plugin => self.class.config_name)
-      LogStash::Plugin.lookup("codec", "#{set_codec_by_folder[folder]}").new("charset" => @codec.charset)
-    rescue Exception => e
-      @logger.error("Failed to set_codec with error", :error => e)
-    end
-  end
 
   public
+
+  # --- BEGIN plugin interface ----------------------------------------#
+
+  # initialisation
   def register
-    require "fileutils"
-    require "digest/md5"
-    require "aws-sdk-resources"
-
-    @runner_threads = []
-    #make this hash keys lookups match like regex
-    hash_key_is_regex(set_codec_by_folder)
-    @logger.info("Registering SQS input", :queue => @queue)
-    setup_queue
-
+    # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
-  end
 
-  def setup_queue
-    aws_sqs_client = Aws::SQS::Client.new(aws_options_hash)
-    queue_url = aws_sqs_client.get_queue_url({ queue_name: @queue, queue_owner_aws_account_id: @queue_owner_aws_account_id})[:queue_url]
-    @poller = Aws::SQS::QueuePoller.new(queue_url, :client => aws_sqs_client)
-    get_s3client
-    @s3_resource = get_s3object
-  rescue Aws::SQS::Errors::ServiceError => e
-    @logger.error("Cannot establish connection to Amazon SQS", :error => e)
-    raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
-  end
+    @credentials_by_bucket = hash_key_is_regex({})
+    # create the bucket=>folder=>codec lookup from config options
+    @codec_by_folder = hash_key_is_regex({})
+    @type_by_folder = hash_key_is_regex({})
 
-  def polling_options
-    {
-        # we will query 1 message at a time, so we can ensure correct error handling if we can't download a single file correctly
-        # (we will throw :skip_delete if download size isn't correct to process the event again later
-        # -> set a reasonable "Default Visibility Timeout" for your queue, so that there's enough time to process the log files)
-        :max_number_of_messages => 1,
-        # we will use the queue's setting, a good value is 10 seconds
-        # (to ensure fast logstash shutdown on the one hand and few api calls on the other hand)
-        :skip_delete => false,
-        :visibility_timeout => @visibility_timeout,
-        :wait_time_seconds => nil,
-    }
-  end
-
-  def handle_message(message, queue, instance_codec)
-    hash = JSON.parse message.body
-    @logger.debug("handle_message", :hash => hash, :message => message)
-    #If send via sns there is an additional JSON layer
-    if @from_sns then
-      hash = JSON.parse(hash['Message'])
-    end
-    # there may be test events sent from the s3 bucket which won't contain a Records array,
-    # we will skip those events and remove them from queue
-    if hash['Records'] then
-      # typically there will be only 1 record per event, but since it is an array we will
-      # treat it as if there could be more records
-      hash['Records'].each do |record|
-        @logger.debug("We found a record", :record => record)
-        # in case there are any events with Records that aren't s3 object-created events and can't therefore be
-        # processed by this plugin, we will skip them and remove them from queue
-        if record['eventSource'] == EVENT_SOURCE and record['eventName'].start_with?(EVENT_TYPE) then
-          @logger.debug("It is a valid record")
-          bucket = CGI.unescape(record['s3']['bucket']['name'])
-          key    = CGI.unescape(record['s3']['object']['key'])
-          size   = record['s3']['object']['size']
-          type_folder = get_object_folder(key)
-          # Set input codec by :set_codec_by_folder
-          instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
-          # try download and :skip_delete if it fails
-          #if record['s3']['object']['size'] < 10000000 then
-          process_log(bucket, key, type_folder, instance_codec, queue, message, size)
-          #else
-          #  @logger.info("Your file is too big")
-          #end
+    # use deprecated settings only if new config is missing:
+    if @s3_options_by_bucket.nil?
+      credentials = {}
+      if @s3_role_arn.nil?
+        # access key/secret key pair needed
+        unless @s3_access_key_id.nil? or @s3_secret_access_key.nil?
+          credentials = {
+            'access_key_id' => @s3_access_key_id,
+            'secret_access_key' => @s3_secret_access_key
+          }
         end
+      else
+        credentials = {
+          'role' => @s3_role_arn
+        }
       end
+      # We don't know any bucket name, so we must rely on a "catch-all" regex
+      @s3_options_by_bucket = [{
+        'bucket_name' => '.*',
+        'credentials' => credentials,
+        'folders' => @set_codec_by_folder.map { |key, codec|
+          { 'key' => key, 'codec' => codec }
+        }
+      }]
     end
-  end
 
-  private
-  def process_log(bucket , key, folder, instance_codec, queue, message, size)
-    s3bucket = @s3_resource.bucket(bucket)
-    @logger.debug("Lets go reading file", :bucket => bucket, :key => key)
-    object = s3bucket.object(key)
-    filename = File.join(temporary_directory, File.basename(key))
-    if download_remote_file(object, filename)
-      if process_local_log( filename, key, folder, instance_codec, queue, bucket, message, size)
-        begin
-          FileUtils.remove_entry_secure(filename, true) if File.exists? filename
-          delete_file_from_bucket(object)
-        rescue Exception => e
-          @logger.debug("We had problems to delete your file", :file => filename, :error => e)
+    @s3_options_by_bucket.each do |options|
+      bucket = options['bucket_name']
+      if options.key?('credentials')
+        @credentials_by_bucket[bucket] = options['credentials']
+      end
+      if options.key?('folders')
+        # make these hashes do key lookups using regex matching
+        folders = hash_key_is_regex({})
+        types = hash_key_is_regex({})
+        options['folders'].each do |entry|
+          @logger.debug("options for folder ", :folder => entry)
+          folders[entry['key']] = entry['codec'] if entry.key?('codec')
+          types[entry['key']] = entry['type'] if entry.key?('type')
         end
-      end
-    else
-      begin
-        FileUtils.remove_entry_secure(filename, true) if File.exists? filename
-      rescue Exception => e
-        @logger.debug("We had problems clean up your tmp dir", :file => filename, :error => e)
+        @codec_by_folder[bucket] = folders unless folders.empty?
+        @type_by_folder[bucket] = types unless types.empty?
       end
     end
+
+    @received_stop = Concurrent::AtomicBoolean.new(false)
+
+    # instantiate helpers
+    @sqs_poller = SqsPoller.new(@logger, @received_stop, @queue, {
+      queue_owner_aws_account_id: @queue_owner_aws_account_id,
+      from_sns: @from_sns,
+      sqs_explicit_delete: @sqs_explicit_delete,
+      visibility_timeout: @visibility_timeout
+    }, aws_options_hash)
+    @s3_client_factory = S3ClientFactory.new(@logger, {
+      aws_region: @region,
+      s3_default_options: @s3_default_options,
+      s3_credentials_by_bucket: @credentials_by_bucket,
+      s3_role_session_name: @s3_role_session_name
+    }, aws_options_hash)
+    @s3_downloader = S3Downloader.new(@logger, @received_stop, {
+      s3_client_factory: @s3_client_factory,
+      delete_on_success: @delete_on_success
+    })
+    @codec_factory = CodecFactory.new(@logger, {
+      default_codec: @codec,
+      codec_by_folder: @codec_by_folder
+    })
+    #@log_processor = LogProcessor.new(self)
+
+    # administrative stuff
+    @worker_threads = []
   end
 
-  private
-  # Stream the remove file to the local disk
-  #
-  # @param [S3Object] Reference to the remove S3 objec to download
-  # @param [String] The Temporary filename to stream to.
-  # @return [Boolean] True if the file was completely downloaded
-  def download_remote_file(remote_object, local_filename)
-    completed = false
-    @logger.debug("S3 input: Download remote file", :remote_key => remote_object.key, :local_filename => local_filename)
-    File.open(local_filename, 'wb') do |s3file|
-      return completed if stop?
-      begin
-        remote_object.get(:response_target => s3file)
-      rescue Aws::S3::Errors::ServiceError => e
-        @logger.error("Unable to download file. We´ll requeue the message", :file => remote_object.inspect)
-        throw :skip_delete
-      end
+  # startup
+  def run(logstash_event_queue)
+    #LogStash::ShutdownWatcher.abort_threshold(30)
+    # start them
+    @worker_threads = @consumer_threads.times.map do |_|
+      run_worker_thread(logstash_event_queue)
     end
-    completed = true
-
-    return completed
+    # and wait (possibly infinitely) for them to shut down
+    @worker_threads.each { |t| t.join }
   end
 
-  private
-
-  # Read the content of the local file
-  #
-  # @param [Queue] Where to push the event
-  # @param [String] Which file to read from
-  # @return [Boolean] True if the file was completely read, false otherwise.
-  def process_local_log(filename, key, folder, instance_codec, queue, bucket, message, size)
-    @logger.debug('Processing file', :filename => filename)
-    metadata = {}
-    start_time = Time.now
-    # Currently codecs operates on bytes instead of stream.
-    # So all IO stuff: decompression, reading need to be done in the actual
-    # input and send as bytes to the codecs.
-    read_file(filename) do |line|
-      if (Time.now - start_time) >= (@visibility_timeout.to_f / 100.0 * 90.to_f)
-        @logger.info("Increasing the visibility_timeout ... ", :timeout => @visibility_timeout, :filename => filename, :filesize => size, :start => start_time )
-        poller.change_message_visibility_timeout(message, @visibility_timeout)
-        start_time = Time.now
-      end
-      if stop?
-        @logger.warn("Logstash S3 input, stop reading in the middle of the file, we will read it again when logstash is started")
-        return false
-      end
-      line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      #@logger.debug("read line", :line => line)
-      instance_codec.decode(line) do |event|
-        @logger.debug("decorate event")
-        # We are making an assumption concerning cloudfront
-        # log format, the user will use the plain or the line codec
-        # and the message key will represent the actual line content.
-        # If the event is only metadata the event will be drop.
-        # This was the behavior of the pre 1.5 plugin.
-        #
-        # The line need to go through the codecs to replace
-        # unknown bytes in the log stream before doing a regexp match or
-        # you will get a `Error: invalid byte sequence in UTF-8'
-        local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-      end
-    end
-    @logger.debug("end if file #{filename}")
-    #@logger.info("event pre flush", :event => event)
-    # #ensure any stateful codecs (such as multi-line ) are flushed to the queue
-    instance_codec.flush do |event|
-      local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-      @logger.debug("We´e to flush an incomplete event...", :event => event)
-    end
-
-    return true
-  end # def process_local_log
-
-  private
-  def local_decorate_and_queue(event, queue, key, folder, metadata, bucket)
-    @logger.debug('decorating event', :event => event.to_s)
-    if event_is_metadata?(event)
-      @logger.debug('Event is metadata, updating the current cloudfront metadata', :event => event)
-      update_metadata(metadata, event)
-    else
-
-      decorate(event)
-
-      event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
-      event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
-
-      event.set("[@metadata][s3][object_key]", key)
-      event.set("[@metadata][s3][bucket_name]", bucket)
-      event.set("[@metadata][s3][object_folder]", folder)
-      @logger.debug('add metadata', :object_key => key, :bucket => bucket, :folder => folder)
-      queue << event
-    end
-  end
-
-
-  private
-  def get_object_folder(key)
-    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
-      return match['type_folder']
-    else
-      return ""
-    end
-  end
-
-  private
-  def read_file(filename, &block)
-    if gzip?(filename)
-      read_gzip_file(filename, block)
-    else
-      read_plain_file(filename, block)
-    end
-  end
-
-  def read_plain_file(filename, block)
-    File.open(filename, 'rb') do |file|
-      file.each(&block)
-    end
-  end
-
-  private
-  def read_gzip_file(filename, block)
-    file_stream = FileInputStream.new(filename)
-    gzip_stream = GZIPInputStream.new(file_stream)
-    decoder = InputStreamReader.new(gzip_stream, "UTF-8")
-    buffered = BufferedReader.new(decoder)
-
-    while (line = buffered.readLine())
-      block.call(line)
-    end
-  rescue ZipException => e
-    @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, :error => e)
-  ensure
-    buffered.close unless buffered.nil?
-    decoder.close unless decoder.nil?
-    gzip_stream.close unless gzip_stream.nil?
-    file_stream.close unless file_stream.nil?
-  end
-
-  private
-  def gzip?(filename)
-    return true if filename.end_with?('.gz','.gzip')
-    MagicGzipValidator.new(File.new(filename, 'r')).valid?
-  rescue Exception => e
-    @logger.debug("Problem while gzip detection", :error => e)
-  end
-
-  private
-  def delete_file_from_bucket(object)
-    if @delete_on_success
-      object.delete()
-    end
-  end
-
-
-  private
-  def get_s3client
-    if s3_access_key_id and s3_secret_access_key
-      @logger.debug("Using S3 Credentials from config", :ID => aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key) )
-      @s3_client = Aws::S3::Client.new(aws_options_hash.merge(:access_key_id => s3_access_key_id, :secret_access_key => s3_secret_access_key))
-    elsif @s3_role_arn
-      @s3_client = Aws::S3::Client.new(aws_options_hash.merge!({ :credentials => s3_assume_role }))
-      @logger.debug("Using S3 Credentials from role", :s3client => @s3_client.inspect, :options => aws_options_hash.merge!({ :credentials => s3_assume_role }))
-    else
-      @s3_client = Aws::S3::Client.new(aws_options_hash)
-    end
-  end
-
-  private
-  def get_s3object
-    s3 = Aws::S3::Resource.new(client: @s3_client)
-  end
-
-  private
-  def s3_assume_role()
-    Aws::AssumeRoleCredentials.new(
-        client: Aws::STS::Client.new(region: @region),
-        role_arn: @s3_role_arn,
-        role_session_name: @s3_role_session_name
-    )
-  end
-
-  private
-  def event_is_metadata?(event)
-    return false unless event.get("message").class == String
-    line = event.get("message")
-    version_metadata?(line) || fields_metadata?(line)
-  end
-
-  private
-  def version_metadata?(line)
-    line.start_with?('#Version: ')
-  end
-
-  private
-  def fields_metadata?(line)
-    line.start_with?('#Fields: ')
-  end
-
-  private
-  def update_metadata(metadata, event)
-    line = event.get('message').strip
-
-    if version_metadata?(line)
-      metadata[:cloudfront_version] = line.split(/#Version: (.+)/).last
-    end
-
-    if fields_metadata?(line)
-      metadata[:cloudfront_fields] = line.split(/#Fields: (.+)/).last
-    end
-  end
-
-  public
-  def run(queue)
-    if @consumer_threads
-      # ensure we can stop logstash correctly
-      @runner_threads = consumer_threads.times.map { |consumer| thread_runner(queue) }
-      @runner_threads.each { |t| t.join }
-    else
-      #Fallback to simple single thread worker
-      # ensure we can stop logstash correctly
-      poller.before_request do |stats|
-        if stop? then
-          @logger.warn("issuing :stop_polling on stop?", :queue => @queue)
-          # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
-          throw :stop_polling
-        end
-      end
-      # poll a message and process it
-      run_with_backoff do
-        poller.poll(polling_options) do |message|
-          begin
-            handle_message(message, queue, @codec.clone)
-            poller.delete_message(message)
-          rescue Exception => e
-            @logger.info("Error in poller block ... ", :error => e)
-          end
-        end
-      end
-    end
-  end
-
-  public
+  # shutdown
   def stop
-    if @consumer_threads
-      @runner_threads.each do |c|
-        begin
-          @logger.info("Stopping thread ... ", :thread => c.inspect)
-          c.wakeup
-        rescue
-          @logger.error("Cannot stop thread ... try to kill him", :thread => c.inspect)
-          c.kill
-        end
-      end
-    else
-      @logger.warn("Stopping all threads?", :queue => @queue)
-    end
-  end
-
-  private
-  def thread_runner(queue)
-    Thread.new do
-      @logger.info("Starting new thread")
+    @received_stop.make_true
+    @worker_threads.each do |worker|
       begin
-        poller.before_request do |stats|
-          if stop? then
-            @logger.warn("issuing :stop_polling on stop?", :queue => @queue)
-            # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
-            throw :stop_polling
+        @logger.info("Stopping thread ... ", :thread => worker.inspect)
+        worker.wakeup
+      rescue
+        @logger.error("Cannot stop thread ... try to kill him", :thread => worker.inspect)
+        worker.kill
+      end
+    end
+  end
+
+  # --- END plugin interface ------------------------------------------#
+
+  private
+
+  def run_worker_thread(queue)
+    Thread.new do
+      @logger.info("Starting new worker thread")
+      @sqs_poller.run do |record|
+        throw :skip_delete if stop?
+        @logger.debug("Outside Poller: got a record", :record => record)
+        # record is a valid object with the keys ":bucket", ":key", ":size"
+        record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
+        if @s3_downloader.copy_s3object_to_disk(record)
+          completed = catch(:skip_delete) do
+            process(record, queue)
           end
-        end
-        # poll a message and process it
-        run_with_backoff do
-          poller.poll(polling_options) do |message|
-            begin
-              handle_message(message, queue, @codec.clone)
-              poller.delete_message(message) if @sqs_explicit_delete
-            rescue Exception => e
-              @logger.info("Error in poller block ... ", :error => e)
-            end
-          end
+          @s3_downloader.cleanup_local_object(record)
+          # re-throw if necessary:
+          throw :skip_delete unless completed
+          @s3_downloader.cleanup_s3object(record)
         end
       end
     end
   end
 
-  private
-  # Runs an AWS request inside a Ruby block with an exponential backoff in case
-  # we experience a ServiceError.
-  #
-  # @param [Integer] max_time maximum amount of time to sleep before giving up.
-  # @param [Integer] sleep_time the initial amount of time to sleep before retrying.
-  # @param [Block] block Ruby code block to execute.
-  def run_with_backoff(max_time = MAX_TIME_BEFORE_GIVING_UP, sleep_time = BACKOFF_SLEEP_TIME, &block)
-    next_sleep = sleep_time
-    begin
-      block.call
-      next_sleep = sleep_time
-    rescue Aws::SQS::Errors::ServiceError => e
-      @logger.warn("Aws::SQS::Errors::ServiceError ... retrying SQS request with exponential backoff", :queue => @queue, :sleep_time => sleep_time, :error => e)
-      sleep(next_sleep)
-      next_sleep =  next_sleep > max_time ? sleep_time : sleep_time * BACKOFF_FACTOR
-      retry
-    end
-  end
-
-  private
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
       result=nil
@@ -556,5 +323,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       end
       result
     end
+    # return input hash (convenience)
+    return myhash
   end
+
+  def stop?
+    @received_stop.value
+  end
+
 end # class
