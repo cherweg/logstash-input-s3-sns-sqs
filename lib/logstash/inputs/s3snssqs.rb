@@ -190,28 +190,27 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
     # use deprecated settings only if new config is missing:
     if @s3_options_by_bucket.nil?
-      credentials = {}
+      # We don't know any bucket name, so we must rely on a "catch-all" regex
+      s3_options = {
+        'bucket_name' => '.*',
+        'folders' => @set_codec_by_folder.map { |key, codec|
+          { 'key' => key, 'codec' => codec }
+        }
+      }
       if @s3_role_arn.nil?
         # access key/secret key pair needed
         unless @s3_access_key_id.nil? or @s3_secret_access_key.nil?
-          credentials = {
+          s3_options['credentials'] = {
             'access_key_id' => @s3_access_key_id,
             'secret_access_key' => @s3_secret_access_key
           }
         end
       else
-        credentials = {
+        s3_options['credentials'] = {
           'role' => @s3_role_arn
         }
       end
-      # We don't know any bucket name, so we must rely on a "catch-all" regex
-      @s3_options_by_bucket = [{
-        'bucket_name' => '.*',
-        'credentials' => credentials,
-        'folders' => @set_codec_by_folder.map { |key, codec|
-          { 'key' => key, 'codec' => codec }
-        }
-      }]
+      @s3_options_by_bucket = [s3_options]
     end
 
     @s3_options_by_bucket.each do |options|
@@ -317,7 +316,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       result=nil
       hash.each_pair do |key, value|
         if %r[#{key}] =~ lookup
-          result=value
+          result = value
           break
         end
       end
