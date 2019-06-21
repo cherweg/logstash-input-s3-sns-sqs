@@ -2,6 +2,7 @@
 # reads and decodes locally available file with log lines
 # and creates LogStash events from these
 require 'logstash/inputs/mime/magic_gzip_validator'
+require 'pathname'
 
 module LogProcessor
 
@@ -52,7 +53,8 @@ module LogProcessor
 
       event.set("[@metadata][s3][object_key]", key)
       event.set("[@metadata][s3][bucket_name]", bucket)
-      event.set("[@metadata][s3][object_folder]", folder)
+      event.set("[@metadata][s3][full_folder]", folder)
+      event.set("[@metadata][s3][object_folder]", folder.split('/')[-1])
     end
   end
 
