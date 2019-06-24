@@ -143,7 +143,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   #   }
   # }
 
-  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true #, :obsolete => "Never functional. Removed"
+  config :s3_key_prefix, :validate => :string, :default => '', :deprecated => true #, :obsolete => " Will be moved to s3_options_by_bucket/types"
 
   config :s3_access_key_id, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
   config :s3_secret_access_key, :validate => :string, :deprecated => true #, :obsolete => "Please migrate to :s3_options_by_bucket. We will remove this option in the next Version"
@@ -308,6 +308,15 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
           @s3_downloader.cleanup_s3object(record)
         end
       end
+    end
+  end
+
+  # Will be remove in further releases...
+  def get_object_folder(key)
+    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
+      return match['type_folder']
+    else
+      return ""
     end
   end
 
