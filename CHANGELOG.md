@@ -1,6 +1,6 @@
 ##2.0.0
 Breaking Changes:
-- s3_key_prefix was never functional and will be removed
+- s3_key_prefix was never functional and will be removed. Actually only used for metadata.folder backward compatibility.
   config for s3 paths are regex (if not exact match)
 - s3_options_by_bucket substitutes all s3_* options
   We will merge deprecated options into the new structure for one release
