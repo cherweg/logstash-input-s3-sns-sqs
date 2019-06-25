@@ -90,7 +90,7 @@ class SqsPoller
         failed = false
         begin
           preprocess(message) do |record|
-            @logger.debug("we got a record", :record => record)
+            #@logger.info("we got a record", :record => record)
             yield(record) #unless record.nil? - unnecessary; implicit
           end
         rescue Exception => e
@@ -102,6 +102,7 @@ class SqsPoller
         extender.kill
         extender = nil
         throw :skip_delete if failed
+        @poller.delete_message(message) unless failed
       end
     end
   end
