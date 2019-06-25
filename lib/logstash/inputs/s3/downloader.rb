@@ -15,6 +15,7 @@ class S3Downloader
     # (from docs) WARNING:
     # yielding data to a block disables retries of networking errors!
     begin
+      #@logger.info("Download File", :file => record)
       @factory.get_s3_client(record[:bucket]) do |s3|
         response = s3.get_object(
           bucket: record[:bucket],
