@@ -100,6 +100,7 @@ class SqsPoller
         end
         # at this time the extender has either fired or is obsolete
         extender.kill
+        #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
         throw :skip_delete if failed
         @poller.delete_message(message) unless failed

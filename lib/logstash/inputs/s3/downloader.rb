@@ -22,6 +22,7 @@ class S3Downloader
           key: record[:key],
           response_target: record[:local_file]
         )
+        #@logger.info("READY: File", :file => record, :response => response)
       end
     rescue Aws::S3::Errors::ServiceError => e
       @logger.error("Unable to download file. Requeuing the message", :error => e, :record => record)
@@ -33,6 +34,7 @@ class S3Downloader
   end
 
   def cleanup_local_object(record)
+    #@logger.info("Cleaning up file", :file => record[:local_file])
     FileUtils.remove_entry_secure(record[:local_file], true) if ::File.exists?(record[:local_file])
   rescue Exception => e
     @logger.warn("Could not delete file", :file => record[:local_file], :error => e)

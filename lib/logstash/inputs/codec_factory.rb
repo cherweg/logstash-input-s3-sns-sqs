@@ -17,7 +17,7 @@ class CodecFactory
       @codecs[codec] = get_codec_plugin(codec)
     end
     @logger.debug("Switching to codec #{codec}") if codec != 'default'
-    return @codecs[codec]
+    return @codecs[codec].clone
   end
 
   private
