@@ -16,17 +16,27 @@ module LogProcessor
     folder = record[:folder]
     type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
     metadata = {}
+    #@logger.info("processing file",:thread => Thread.current[:name], :local_file => record[:local_file])
+    line_count = 0
+    event_count = 0
     read_file(file) do |line|
+      line_count += 1
+      #@logger.info("got a yielded line", :line_count => line_count) if line_count < 10
       if stop?
         @logger.warn("Abort reading in the middle of the file, we will read it again when logstash is started")
         throw :skip_delete
       end
       line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
+      #@logger.info("ENcoded line", :line_count => line_count) if line_count < 10
       codec.decode(line) do |event|
         decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+        event_count += 1
         logstash_event_queue << event
+        #@logger.info("queued event ", :lines => line_count, :events => event_count, :thread => Thread.current[:name]) if event_count < 10
       end
+      #@logger.info("DEcoded line", :line_count => line_count) if line_count < 10
     end
+    #@logger.info("queued all events ", :lines => line_count, :events => event_count, :thread => Thread.current[:name])
     # ensure any stateful codecs (such as multi-line ) are flushed to the queue
     codec.flush do |event|
       decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
@@ -65,7 +75,8 @@ module LogProcessor
     @logger.warn("Problem while gzip detection", :error => e)
   end
 
-  def read_file(filename)
+  def read_file(filename, &block)
+    #@logger.info("begin read_file",:thread => Thread.current[:name])
     completed = false
     zipped = gzip?(filename)
     file_stream = FileInputStream.new(filename)
@@ -76,19 +87,26 @@ module LogProcessor
       decoder = InputStreamReader.new(file_stream, 'UTF-8')
     end
     buffered = BufferedReader.new(decoder)
-
-    while (line = buffered.readLine())
-      yield(line)
+    line = buffered.readLine()
+    #@logger.info("read first line", :line => line)
+    while (!line.nil?)
+      block.call(line)
+      line = buffered.readLine()
+      #@logger.info("next line read",:line => line)
     end
+    #@logger.info("finished read_file",:thread => Thread.current[:name])
     completed = true
+
   rescue ZipException => e
     @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, :error => e)
+    return nil
   ensure
     buffered.close unless buffered.nil?
     decoder.close unless decoder.nil?
     gzip_stream.close unless gzip_stream.nil?
     file_stream.close unless file_stream.nil?
     throw :skip_delete unless completed
+    return nil
   end
 
   def event_is_metadata?(event)

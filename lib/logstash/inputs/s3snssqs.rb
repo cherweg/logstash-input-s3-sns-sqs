@@ -7,11 +7,13 @@ require "logstash/shutdown_watcher"
 require "logstash/errors"
 require 'logstash/inputs/s3sqs/patch'
 require "aws-sdk"
+
 # "object-oriented interfaces on top of API clients"...
 # => Overhead. FIXME: needed?
 #require "aws-sdk-resources"
 require "fileutils"
 require "concurrent"
+require 'tmpdir'
 # unused in code:
 #require "stud/interval"
 #require "digest/md5"
@@ -265,8 +267,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   def run(logstash_event_queue)
     #LogStash::ShutdownWatcher.abort_threshold(30)
     # start them
-    @worker_threads = @consumer_threads.times.map do |_|
-      run_worker_thread(logstash_event_queue)
+    @queue_mutex = Mutex.new
+    #@consumer_threads= 1
+    @worker_threads = @consumer_threads.times.map do |thread_id|
+      run_worker_thread(logstash_event_queue, thread_id)
     end
     # and wait (possibly infinitely) for them to shut down
     @worker_threads.each { |t| t.join }
@@ -286,18 +290,24 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
+  def stop?
+    @received_stop.value
+  end
+
   # --- END plugin interface ------------------------------------------#
 
   private
 
-  def run_worker_thread(queue)
+  def run_worker_thread(queue, thread_id)
     Thread.new do
       @logger.info("Starting new worker thread")
+      temporary_directory = Dir.mktmpdir("#{@temporary_directory}/")
       @sqs_poller.run do |record|
         throw :skip_delete if stop?
         @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
-        record[:local_file] = File.join(@temporary_directory, File.basename(record[:key]))
+        record[:local_file] = File.join(temporary_directory, File.basename(record[:key]))
+        LogStash::Util.set_thread_name("[Processor #{thread_id} -  Working on: #{record[:key]}")
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
             process(record, queue)
@@ -334,9 +344,4 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # return input hash (convenience)
     return myhash
   end
-
-  def stop?
-    @received_stop.value
-  end
-
 end # class
