@@ -103,7 +103,6 @@ class SqsPoller
         #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
         throw :skip_delete if failed
-        @poller.delete_message(message) unless failed
       end
     end
   end
