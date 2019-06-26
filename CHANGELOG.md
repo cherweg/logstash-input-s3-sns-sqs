@@ -1,3 +1,8 @@
+##2.0.1
+FIX:
+- Deadlock while message decoding
+- make method stop? public
+
 ##2.0.0
 Breaking Changes:
 - s3_key_prefix was never functional and will be removed. Actually only used for metadata.folder backward compatibility.
