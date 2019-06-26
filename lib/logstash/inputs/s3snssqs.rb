@@ -290,6 +290,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
+  def stop?
+    @received_stop.value
+  end
+
   # --- END plugin interface ------------------------------------------#
 
   private
@@ -340,9 +344,4 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     # return input hash (convenience)
     return myhash
   end
-
-  def stop?
-    @received_stop.value
-  end
-
 end # class
