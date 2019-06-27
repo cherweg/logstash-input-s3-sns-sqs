@@ -3,6 +3,7 @@ reports, or in general have helped logstash along its way.
 
 Contributors:
 * cherweg(this fork + some bugfixes)
+* holgerjenczewski1007 (thank you for the refactoring)
 * joshuaspence (event metadata)
 * Heiko-san (initial contributor)
 * logstash-input-sqs plugin as code base
