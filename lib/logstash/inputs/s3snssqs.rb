@@ -323,7 +323,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # Will be remove in further releases...
   def get_object_folder(key)
-    if match=/#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
+    if match = /#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
       return match['type_folder']
     else
       return ""
