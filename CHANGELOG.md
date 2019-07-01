@@ -1,5 +1,6 @@
 ##2.0.2
 FIX:
+- Terminate every input line by \n (BufferedReader does not)
 - Wrong input for type folder, leads to empty types
 ##2.0.1
 FIX:
