@@ -75,8 +75,7 @@ module LogProcessor
     @logger.warn("Problem while gzip detection", :error => e)
   end
 
-  def read_file(filename, &block)
-    #@logger.info("begin read_file",:thread => Thread.current[:name])
+  def read_file(filename)
     completed = false
     zipped = gzip?(filename)
     file_stream = FileInputStream.new(filename)
@@ -87,27 +86,22 @@ module LogProcessor
       decoder = InputStreamReader.new(file_stream, 'UTF-8')
     end
     buffered = BufferedReader.new(decoder)
-    line = buffered.readLine()
-    #@logger.info("read first line", :line => line)
-    while (!line.nil?)
-      block.call(line)
-      line = buffered.readLine()
-      #@logger.info("next line read",:line => line)
-    end
-    #@logger.info("finished read_file",:thread => Thread.current[:name])
-    completed = true
 
+    while (data = buffered.readLine())
+      line = StringBuilder.new(data).append("\n")
+      yield(line.toString())
+    end
+    completed = true
   rescue ZipException => e
     @logger.error("Gzip codec: We cannot uncompress the gzip file", :filename => filename, :error => e)
-    return nil
   ensure
     buffered.close unless buffered.nil?
     decoder.close unless decoder.nil?
     gzip_stream.close unless gzip_stream.nil?
     file_stream.close unless file_stream.nil?
     throw :skip_delete unless completed
-    return nil
   end
+
 
   def event_is_metadata?(event)
     return false unless event.get("message").class == String

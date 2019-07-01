@@ -25,6 +25,7 @@ java_import java.io.FileInputStream
 java_import java.io.BufferedReader
 java_import java.util.zip.GZIPInputStream
 java_import java.util.zip.ZipException
+import java.lang.StringBuilder
 
 # our helper classes
 # these may go into this file for brevity...
@@ -326,6 +327,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     if match = /#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
       return match['type_folder']
     else
+      #FIXME should be NIL instedt of empty sting?
       return ""
     end
   end
