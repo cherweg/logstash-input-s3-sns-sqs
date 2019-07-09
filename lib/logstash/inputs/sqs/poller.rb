@@ -79,18 +79,26 @@ class SqsPoller
     end
 
     run_with_backoff do
+      message_count = 0 #PROFILING
       @poller.poll(@options) do |message|
-        @logger.debug("Inside Poller: polled message", :message => message)
+        #@logger.debug("Inside Poller: polled message", :message => message)
+        message_count += 1 #PROFILING
+        message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        @logger.info("[#{Thread.current[:name]}] start processing sqs message #{message_count}") #PROFILING
         # auto-double the timeout if processing takes too long:
         extender = Thread.new do
           sleep message_backoff
-          @logger.info("Extending visibility for message", :message => message)
+          #@logger.info("Extending visibility for message", message: message)
+          @logger.info("[#{Thread.current[:name]}] Extending visibility for message", message: message) #PROFILING
           @poller.change_message_visibility_timeout(message, new_visibility)
         end
+        extender.name = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false
+        record_count = 0
         begin
           preprocess(message) do |record|
-            #@logger.info("we got a record", :record => record)
+            record_count += 1
+            @logger.info("[#{Thread.current[:name]}] start processing record #{record_count} of message #{message_count}")
             yield(record) #unless record.nil? - unnecessary; implicit
           end
         rescue Exception => e
@@ -102,6 +110,8 @@ class SqsPoller
         extender.kill
         #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
+        message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        @logger.info("[#{Thread.current[:name]}] finished processing sqs message after #{format('%.5f', message_t1 - message_t0)} s", message: message_count, records: record_count) #PROFILING
         throw :skip_delete if failed
       end
     end
@@ -132,7 +142,7 @@ class SqsPoller
           bucket: bucket,
           key: key,
           size: size,
-          folder: get_type_folder(key)
+          folder: get_object_path(key)
         })
 
         # -v- this stuff goes into s3 and processor handling: -v-
@@ -171,11 +181,7 @@ class SqsPoller
     end
   end
 
-  def get_type_folder(key)
-    # TEST THIS!
-    # if match = /.*\/?(?<type_folder>)\/[^\/]*.match(key)
-    #   return match['type_folder']
-    # end
+  def get_object_path(key)
     folder = ::File.dirname(key)
     return '' if folder == '.'
     return folder

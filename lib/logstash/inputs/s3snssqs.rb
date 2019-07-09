@@ -301,16 +301,20 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   def run_worker_thread(queue, thread_id)
     Thread.new do
-      @logger.info("Starting new worker thread")
+      LogStash::Util.set_thread_name("Worker ##{thread_id}")
+      @logger.info("[#{Thread.current[:name]}] started (#{Time.now})") #PROFILING
       temporary_directory = Dir.mktmpdir("#{@temporary_directory}/")
+      #PROFILING: poller profiles overall processing time
       @sqs_poller.run do |record|
         throw :skip_delete if stop?
-        @logger.debug("Outside Poller: got a record", :record => record)
+        #@logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(temporary_directory, File.basename(record[:key]))
-        LogStash::Util.set_thread_name("[Processor #{thread_id} -  Working on: #{record[:key]}")
+        #LogStash::Util.set_thread_name("[Processor #{thread_id} -  Working on: #{record[:key]}")
+        #PROFILING: Downloader profiles retrieval time
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
+            #PROFILING: "process" profiles working time
             process(record, queue)
           end
           @s3_downloader.cleanup_local_object(record)
@@ -322,19 +326,19 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
-  # Will be remove in further releases...
+  # Will be removed in further releases:
   def get_object_folder(key)
     if match = /#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
       return match['type_folder']
     else
-      #FIXME should be NIL instedt of empty sting?
+      #FIXME: should be NIL instead of empty string?
       return ""
     end
   end
 
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
-      result=nil
+      result = nil
       hash.each_pair do |key, value|
         if %r[#{key}] =~ lookup
           result = value
