@@ -15,18 +15,18 @@ class S3Downloader
     # (from docs) WARNING:
     # yielding data to a block disables retries of networking errors!
     begin
-      download_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-      @logger.info("[#{Thread.current[:name]}] downloading file", file: record[:key]) #PROFILING
+      #download_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+      #@logger.info("[#{Thread.current[:name]}] downloading file", file: record[:key]) #PROFILING
       @factory.get_s3_client(record[:bucket]) do |s3|
-        download_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        @logger.info("[#{Thread.current[:name]}] got s3 client after #{format('%.5f', download_t1 - download_t0)} s", file: record[:key]) #PROFILING
+        #download_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        #@logger.info("[#{Thread.current[:name]}] got s3 client after #{format('%.5f', download_t1 - download_t0)} s", file: record[:key]) #PROFILING
         response = s3.get_object(
           bucket: record[:bucket],
           key: record[:key],
           response_target: record[:local_file]
         )
-        download_t2 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        @logger.info("[#{Thread.current[:name]}] download finished after #{format('%.5f', download_t2 - download_t1)} s", file: record[:key]) #PROFILINGq
+        #download_t2 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        #@logger.info("[#{Thread.current[:name]}] download finished after #{format('%.5f', download_t2 - download_t1)} s", file: record[:key]) #PROFILING
       end
     rescue Aws::S3::Errors::ServiceError => e
       @logger.error("Unable to download file. Requeuing the message", :error => e, :record => record)

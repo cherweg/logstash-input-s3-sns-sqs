@@ -169,7 +169,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
   config :delete_on_success, :validate => :boolean, :default => false
-  config :visibility_timeout, :validate => :number, :default => 600
+  config :visibility_timeout, :validate => :number, :default => 10
 
   ### system
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
@@ -185,7 +185,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   def register
     # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
-
+    @id ||= "Unknown" #Use INPUT{ id => name} for thread identifier
     @credentials_by_bucket = hash_key_is_regex({})
     # create the bucket=>folder=>codec lookup from config options
     @codec_by_folder = hash_key_is_regex({})
@@ -271,7 +271,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @queue_mutex = Mutex.new
     #@consumer_threads= 1
     @worker_threads = @consumer_threads.times.map do |thread_id|
-      run_worker_thread(logstash_event_queue, thread_id)
+      t = run_worker_thread(logstash_event_queue, thread_id)
+      #make thead start async to prevent polling the same message from sqs
+      sleep 0.5
+      t
     end
     # and wait (possibly infinitely) for them to shut down
     @worker_threads.each { |t| t.join }
@@ -301,7 +304,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   def run_worker_thread(queue, thread_id)
     Thread.new do
-      LogStash::Util.set_thread_name("Worker ##{thread_id}")
+      LogStash::Util.set_thread_name("Worker #{@id}/#{thread_id}")
       @logger.info("[#{Thread.current[:name]}] started (#{Time.now})") #PROFILING
       temporary_directory = Dir.mktmpdir("#{@temporary_directory}/")
       #PROFILING: poller profiles overall processing time

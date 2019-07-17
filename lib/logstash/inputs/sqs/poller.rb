@@ -15,11 +15,13 @@ class SqsPoller
       # "DefaultVisibilityTimeout" for your queue so that there's enough time
       # to process the log files!)
       max_number_of_messages: 1,
-      visibility_timeout: 600,
+      visibility_timeout: 10,
       # long polling; by default we use the queue's setting.
       # A good value is 10 seconds to to balance between a quick logstash
       # shutdown and fewer api calls.
       wait_time_seconds: nil,
+      #attribute_names: ["All"], # Receive all available built-in message attributes.
+      #message_attribute_names: ["All"], # Receive any custom message attributes.
       skip_delete: false,
   }
 
@@ -63,7 +65,7 @@ class SqsPoller
   def run() # not (&block) - pass explicitly (use yield below)
     # per-thread timer to extend visibility if necessary
     extender = nil
-    message_backoff = (@options[:visibility_timeout] * 90).to_f / 100.0
+    message_backoff = (@options[:visibility_timeout] * 95).to_f / 100.0
     new_visibility = 2 * @options[:visibility_timeout]
 
     # "shutdown handler":
@@ -81,25 +83,36 @@ class SqsPoller
     run_with_backoff do
       message_count = 0 #PROFILING
       @poller.poll(@options) do |message|
-        #@logger.debug("Inside Poller: polled message", :message => message)
+        #@logger.info("Inside Poller: polled message", :message => message)
         message_count += 1 #PROFILING
         message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        @logger.info("[#{Thread.current[:name]}] start processing sqs message #{message_count}") #PROFILING
+        #@logger.info("[#{Thread.current[:name]}] start processing sqs message #{message_count}") #PROFILING
         # auto-double the timeout if processing takes too long:
         extender = Thread.new do
-          sleep message_backoff
-          #@logger.info("Extending visibility for message", message: message)
-          @logger.info("[#{Thread.current[:name]}] Extending visibility for message", message: message) #PROFILING
-          @poller.change_message_visibility_timeout(message, new_visibility)
+          while true do
+            sleep message_backoff
+            #@logger.info("Extending visibility for message", message: message)
+            begin
+              @poller.change_message_visibility_timeout(message, new_visibility)
+              new_visibility += message_backoff
+            rescue Aws::SQS::Errors::InvalidParameterValue => e
+              @logger.debug("Extending visibility failed for message", :error => e)
+            else
+              @logger.info("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
+            end
+          end
         end
-        extender.name = "#{Thread.current[:name]}/extender" #PROFILING
+        extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false
         record_count = 0
         begin
-          preprocess(message) do |record|
-            record_count += 1
-            @logger.info("[#{Thread.current[:name]}] start processing record #{record_count} of message #{message_count}")
-            yield(record) #unless record.nil? - unnecessary; implicit
+          message_completed = catch(:skip_delete) do
+            preprocess(message) do |record|
+              record_count += 1
+              extender[:name] = "#{Thread.current[:name]}/extender/#{record[:key]}" #PROFILING
+              #@logger.info("[#{Thread.current[:name]}] start processing record #{record_count} of message #{message_count} for file #{record[:key]}")
+              yield(record) #unless record.nil? - unnecessary; implicit
+            end
           end
         rescue Exception => e
           @logger.warn("Error in poller loop", :error => e)
@@ -111,8 +124,13 @@ class SqsPoller
         #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
         message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        @logger.info("[#{Thread.current[:name]}] finished processing sqs message after #{format('%.5f', message_t1 - message_t0)} s", message: message_count, records: record_count) #PROFILING
-        throw :skip_delete if failed
+        #@logger.info("[#{Thread.current[:name]}] finished processing sqs message after #{format('%.5f', message_t1 - message_t0)} s", :message => message_count, :records => record_count)  #PROFILING
+        unless message_completed
+          @logger.info("[#{Thread.current[:name]}] setting visibility to 0", :message => message_count)
+          @poller.change_message_visibility_timeout(message, 0)
+        end
+        #@poller.delete_message(message) unless failed
+        throw :skip_delete if failed or ! message_completed
       end
     end
   end
