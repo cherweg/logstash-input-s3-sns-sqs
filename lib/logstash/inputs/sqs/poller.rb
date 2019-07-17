@@ -39,7 +39,6 @@ class SqsPoller
     @logger = logger
     @stopped = stop_semaphore
     @queue = sqs_queue
-    # @stopped = false # FIXME: needed per thread?
     @from_sns = options[:from_sns]
     @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:sqs_explicit_delete, :from_sns, :queue_owner_aws_account_id, :sqs_skip_delete].include? k })
     @options[:skip_delete] = options[:sqs_skip_delete]
@@ -59,9 +58,7 @@ class SqsPoller
     end
   end
 
-  #
   # this is called by every worker thread:
-  #
   def run() # not (&block) - pass explicitly (use yield below)
     # per-thread timer to extend visibility if necessary
     extender = nil
@@ -83,22 +80,19 @@ class SqsPoller
     run_with_backoff do
       message_count = 0 #PROFILING
       @poller.poll(@options) do |message|
-        #@logger.info("Inside Poller: polled message", :message => message)
         message_count += 1 #PROFILING
         message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        #@logger.info("[#{Thread.current[:name]}] start processing sqs message #{message_count}") #PROFILING
-        # auto-double the timeout if processing takes too long:
+        # auto-increase the timeout if processing takes too long:
         extender = Thread.new do
           while true do
             sleep message_backoff
-            #@logger.info("Extending visibility for message", message: message)
             begin
               @poller.change_message_visibility_timeout(message, new_visibility)
               new_visibility += message_backoff
             rescue Aws::SQS::Errors::InvalidParameterValue => e
               @logger.debug("Extending visibility failed for message", :error => e)
             else
-              @logger.info("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
+              @logger.debug("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
             end
           end
         end
@@ -110,8 +104,7 @@ class SqsPoller
             preprocess(message) do |record|
               record_count += 1
               extender[:name] = "#{Thread.current[:name]}/extender/#{record[:key]}" #PROFILING
-              #@logger.info("[#{Thread.current[:name]}] start processing record #{record_count} of message #{message_count} for file #{record[:key]}")
-              yield(record) #unless record.nil? - unnecessary; implicit
+              yield(record)
             end
           end
         rescue Exception => e
@@ -121,15 +114,12 @@ class SqsPoller
         end
         # at this time the extender has either fired or is obsolete
         extender.kill
-        #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
         message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        #@logger.info("[#{Thread.current[:name]}] finished processing sqs message after #{format('%.5f', message_t1 - message_t0)} s", :message => message_count, :records => record_count)  #PROFILING
         unless message_completed
           @logger.info("[#{Thread.current[:name]}] setting visibility to 0", :message => message_count)
           @poller.change_message_visibility_timeout(message, 0)
         end
-        #@poller.delete_message(message) unless failed
         throw :skip_delete if failed or ! message_completed
       end
     end
@@ -162,18 +152,6 @@ class SqsPoller
           size: size,
           folder: get_object_path(key)
         })
-
-        # -v- this stuff goes into s3 and processor handling: -v-
-
-        # type_folder = get_object_folder(key)
-        # Set input codec by :set_codec_by_folder
-        # instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
-        # try download and :skip_delete if it fails
-        #if record['s3']['object']['size'] < 10000000 then
-        # process_log(bucket, key, type_folder, instance_codec, queue, message, size)
-        #else
-        #  @logger.info("Your file is too big")
-        #end
       end
     end
   end

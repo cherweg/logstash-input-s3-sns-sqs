@@ -25,7 +25,7 @@ class CodecFactory
   def find_codec(record)
     bucket, key, folder = record[:bucket], record[:key], record[:folder]
     unless @codec_by_folder[bucket].nil?
-      @logger.debug("trying to find codec for folder #{folder}", :codec =>  @codec_by_folder[bucket][folder])
+      @logger.debug("Looking up codec for folder #{folder}", :codec =>  @codec_by_folder[bucket][folder])
       return @codec_by_folder[bucket][folder] unless @codec_by_folder[bucket][folder].nil?
     end
     return 'default'

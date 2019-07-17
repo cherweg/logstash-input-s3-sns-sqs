@@ -16,42 +16,25 @@ module LogProcessor
     folder = record[:folder]
     type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
     metadata = {}
-    #@logger.info("processing file",:thread => Thread.current[:name], :local_file => record[:local_file])
-    #@logger.info("[#{Thread.current[:name]}] start processing file (#{Time.now})", file: file, type: type, codec: codec) #PROFILING
     line_count = 0
     event_count = 0
     read_file(file) do |line|
       line_count += 1
-      #@logger.info("[#{Thread.current[:name]}] process: received line #{line_count}") #PROFILING
-      #@logger.info("got a yielded line", :line_count => line_count) if line_count < 10
       if stop?
         @logger.warn("[#{Thread.current[:name]}] Abort reading in the middle of the file, we will read it again when logstash is started")
         throw :skip_delete
       end
-      #line_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
       line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      #line_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-      #@logger.info("[#{Thread.current[:name]}] encoding line #{line_count} took #{(line_t1 - line_t0)} s") #PROFILING
-      #@logger.info("ENcoded line", :line_count => line_count) if line_count < 10
       codec.decode(line) do |event|
         event_count += 1
-        #event_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-        #event_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-        #@logger.info("[#{Thread.current[:name]}] decorating event #{event_count} took #{(event_t1 - event_t0)} s") #PROFILING
         logstash_event_queue << event
-        #@logger.info("queued event ", :lines => line_count, :events => event_count, :thread => Thread.current[:name]) if event_count < 10
       end
-      #@logger.info("DEcoded line", :line_count => line_count) if line_count < 10
     end
-    #@logger.info("queued all events ", :lines => line_count, :events => event_count, :thread => Thread.current[:name])
     # ensure any stateful codecs (such as multi-line ) are flushed to the queue
     codec.flush do |event|
       event_count += 1
-      #event_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
       decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-      #event_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
-      #@logger.info("[#{Thread.current[:name]}] decorating flushed event #{event_count} took #{(event_t1 - event_t0)} s") #PROFILING
       @logger.debug("Flushing an incomplete event", :event => event.to_s)
       logstash_event_queue << event
     end
@@ -99,7 +82,6 @@ module LogProcessor
     end
     buffered = BufferedReader.new(decoder)
 
-    #@logger.info("[#{Thread.current[:name]}] read_file: start sending lines", file: filename, zipped: zipped) #PROFILING
     while (data = buffered.readLine())
       line = StringBuilder.new(data).append("\n")
       yield(line.toString())
@@ -114,7 +96,6 @@ module LogProcessor
     file_stream.close unless file_stream.nil?
     throw :skip_delete unless completed
   end
-
 
   def event_is_metadata?(event)
     return false unless event.get("message").class == String
