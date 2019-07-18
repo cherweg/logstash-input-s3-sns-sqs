@@ -30,11 +30,10 @@ module LogProcessor
           line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
           # Potentially dangerous! See https://medium.com/@adamhooper/in-ruby-dont-use-timeout-77d9d4e5a001
           # Decoding a line must not last longer than a few seconds. Otherwise, the file is probably corrupt.
-            codec.decode(line) do |event|
-              event_count += 1
-              decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-              logstash_event_queue << event
-            end
+          codec.decode(line) do |event|
+            event_count += 1
+            decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+            logstash_event_queue << event
           end
         end
         # ensure any stateful codecs (such as multi-line ) are flushed to the queue
