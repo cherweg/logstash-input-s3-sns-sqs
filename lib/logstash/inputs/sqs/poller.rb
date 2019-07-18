@@ -35,19 +35,19 @@ class SqsPoller
 
   # initialization and setup happens once, outside the threads:
   #
-  def initialize(logger, stop_semaphore, sqs_queue, options = {}, aws_options_hash)
+  def initialize(logger, stop_semaphore, poller_options = {}, client_options = {}, aws_options_hash)
     @logger = logger
     @stopped = stop_semaphore
-    @queue = sqs_queue
-    @from_sns = options[:from_sns]
-    @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:sqs_explicit_delete, :from_sns, :queue_owner_aws_account_id, :sqs_skip_delete].include? k })
-    @options[:skip_delete] = options[:sqs_skip_delete]
+    @queue = client_options[:sqs_queue]
+    @from_sns = client_options[:from_sns]
+    @max_processing_time = client_options[:max_processing_time]
+    @options = DEFAULT_OPTIONS.merge(poller_options)
     begin
       @logger.info("Registering SQS input", :queue => @queue)
       sqs_client = Aws::SQS::Client.new(aws_options_hash)
       queue_url = sqs_client.get_queue_url({
         queue_name: @queue,
-        queue_owner_aws_account_id: @options[:queue_owner_aws_account_id]
+        queue_owner_aws_account_id: client_options[:queue_owner_aws_account_id]
       }).queue_url # is a method according to docs. Was [:queue_url].
       @poller = Aws::SQS::QueuePoller.new(queue_url,
         :client => sqs_client
@@ -84,7 +84,7 @@ class SqsPoller
         message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         # auto-increase the timeout if processing takes too long:
         extender = Thread.new do
-          while true do
+          while new_visibility < @max_processing_time do
             sleep message_backoff
             begin
               @poller.change_message_visibility_timeout(message, new_visibility)
@@ -95,6 +95,7 @@ class SqsPoller
               @logger.debug("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
             end
           end
+          @logger.error("[#{Thread.current[:name]}] Maximum visibility reached!")
         end
         extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false

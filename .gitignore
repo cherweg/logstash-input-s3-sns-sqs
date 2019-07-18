@@ -1,1 +1,6 @@
 .ruby-version
+.idea/
+*.gem
+.bundle/
+.vendor/
+testing/

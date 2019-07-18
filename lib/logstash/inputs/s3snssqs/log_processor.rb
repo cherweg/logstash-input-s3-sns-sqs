@@ -3,6 +3,7 @@
 # and creates LogStash events from these
 require 'logstash/inputs/mime/magic_gzip_validator'
 require 'pathname'
+require 'timeout'
 
 module LogProcessor
 
@@ -14,29 +15,39 @@ module LogProcessor
     file = record[:local_file]
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
-    type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
+    type = @type_by_folder[folder]
     metadata = {}
     line_count = 0
     event_count = 0
-    read_file(file) do |line|
-      line_count += 1
-      if stop?
-        @logger.warn("[#{Thread.current[:name]}] Abort reading in the middle of the file, we will read it again when logstash is started")
-        throw :skip_delete
+    begin
+      Timeout::timeout(@max_processing_time) do
+        read_file(file) do |line|
+          line_count += 1
+          if stop?
+            @logger.warn("[#{Thread.current[:name]}] Abort reading in the middle of the file, we will read it again when logstash is started")
+            throw :skip_delete
+          end
+          line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
+          # Potentially dangerous! See https://medium.com/@adamhooper/in-ruby-dont-use-timeout-77d9d4e5a001
+          # Decoding a line must not last longer than a few seconds. Otherwise, the file is probably corrupt.
+            codec.decode(line) do |event|
+              event_count += 1
+              decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+              logstash_event_queue << event
+            end
+          end
+        end
+        # ensure any stateful codecs (such as multi-line ) are flushed to the queue
+        codec.flush do |event|
+          event_count += 1
+          decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+          @logger.debug("Flushing an incomplete event", :event => event.to_s)
+          logstash_event_queue << event
+        end
       end
-      line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      codec.decode(line) do |event|
-        event_count += 1
-        decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-        logstash_event_queue << event
-      end
-    end
-    # ensure any stateful codecs (such as multi-line ) are flushed to the queue
-    codec.flush do |event|
-      event_count += 1
-      decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-      @logger.debug("Flushing an incomplete event", :event => event.to_s)
-      logstash_event_queue << event
+    rescue Timeout::Error => e
+      @logger.error("[#{Thread.current[:name]}] Timeout while processing file #{record[:key]}", file: file)
+      throw :skip_delete
     end
     # signal completion:
     return true

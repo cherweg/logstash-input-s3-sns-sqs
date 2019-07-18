@@ -160,6 +160,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :s3_options_by_bucket, :validate => :array, :required => false # TODO: true
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
+  config :delete_on_success, :validate => :boolean, :default => false
 
   ### sqs
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
@@ -168,8 +169,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
-  config :delete_on_success, :validate => :boolean, :default => false
   config :visibility_timeout, :validate => :number, :default => 10
+  config :max_processing_time, :validate => :number, :default => 900
 
   ### system
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
@@ -238,12 +239,18 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @received_stop = Concurrent::AtomicBoolean.new(false)
 
     # instantiate helpers
-    @sqs_poller = SqsPoller.new(@logger, @received_stop, @queue, {
-      queue_owner_aws_account_id: @queue_owner_aws_account_id,
-      from_sns: @from_sns,
-      sqs_explicit_delete: @sqs_explicit_delete,
-      visibility_timeout: @visibility_timeout
-    }, aws_options_hash)
+    @sqs_poller = SqsPoller.new(@logger, @received_stop,
+      {
+        visibility_timeout: @visibility_timeout,
+        skip_delete: @sqs_skip_delete
+      },
+      {
+        sqs_queue: @queue,
+        queue_owner_aws_account_id: @queue_owner_aws_account_id,
+        from_sns: @from_sns,
+        max_processing_time: @max_processing_time
+      },
+      aws_options_hash)
     @s3_client_factory = S3ClientFactory.new(@logger, {
       aws_region: @region,
       s3_default_options: @s3_default_options,
