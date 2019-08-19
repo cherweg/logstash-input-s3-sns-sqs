@@ -14,33 +14,39 @@ module LogProcessor
     file = record[:local_file]
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
-    type = @type_by_folder[folder] #if @type_by_folder.key?(folder)
+    type = @type_by_folder[folder]
     metadata = {}
-    #@logger.info("processing file",:thread => Thread.current[:name], :local_file => record[:local_file])
     line_count = 0
     event_count = 0
+    #start_time = Time.now
+    file_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
     read_file(file) do |line|
       line_count += 1
-      #@logger.info("got a yielded line", :line_count => line_count) if line_count < 10
       if stop?
-        @logger.warn("Abort reading in the middle of the file, we will read it again when logstash is started")
+        @logger.warn("[#{Thread.current[:name]}] Abort reading in the middle of the file, we will read it again when logstash is started")
         throw :skip_delete
       end
       line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      #@logger.info("ENcoded line", :line_count => line_count) if line_count < 10
+      # Potentially dangerous! See https://medium.com/@adamhooper/in-ruby-dont-use-timeout-77d9d4e5a001
+      # Decoding a line must not last longer than a few seconds. Otherwise, the file is probably corrupt.
       codec.decode(line) do |event|
-        decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
         event_count += 1
+        decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+        #event_time = Time.now #PROFILING
+        #event.set("[@metadata][progress][begin]", start_time)
+        #event.set("[@metadata][progress][index_time]", event_time)
+        #event.set("[@metadata][progress][line]", line_count)
         logstash_event_queue << event
-        #@logger.info("queued event ", :lines => line_count, :events => event_count, :thread => Thread.current[:name]) if event_count < 10
       end
-      #@logger.info("DEcoded line", :line_count => line_count) if line_count < 10
     end
-    #@logger.info("queued all events ", :lines => line_count, :events => event_count, :thread => Thread.current[:name])
+    file_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+    processing_time = (file_t1 - file_t0)
+    #@logger.warn("[#{Thread.current[:name]}] Completed long running File ( took #{processing_time} ) s", file: record[:key], events: event_count, processing_time: processing_time  ) if processing_time > 600.0 #PROFILING
     # ensure any stateful codecs (such as multi-line ) are flushed to the queue
     codec.flush do |event|
+      event_count += 1
       decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
-      @logger.debug("Flushing an incomplete event", :event => event.to_s)
+      @logger.debug("[#{Thread.current[:name]}] Flushing an incomplete event", :event => event.to_s)
       logstash_event_queue << event
     end
     # signal completion:
@@ -55,7 +61,7 @@ module LogProcessor
       update_metadata(metadata, event)
     else
       # type by folder - set before "decorate()" enforces default
-      event.set('type', type) if type && !event.include?('type')
+      event.set('type', type) if type and ! event.include?('type')
       decorate(event)
 
       event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
@@ -63,7 +69,6 @@ module LogProcessor
 
       event.set("[@metadata][s3][object_key]", key)
       event.set("[@metadata][s3][bucket_name]", bucket)
-      event.set("[@metadata][s3][full_folder]", folder)
       event.set("[@metadata][s3][object_folder]", get_object_folder(key))
     end
   end
@@ -101,7 +106,6 @@ module LogProcessor
     file_stream.close unless file_stream.nil?
     throw :skip_delete unless completed
   end
-
 
   def event_is_metadata?(event)
     return false unless event.get("message").class == String

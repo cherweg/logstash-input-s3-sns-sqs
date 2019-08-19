@@ -160,6 +160,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   config :s3_options_by_bucket, :validate => :array, :required => false # TODO: true
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
+  config :delete_on_success, :validate => :boolean, :default => false
 
   ### sqs
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
@@ -168,8 +169,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
-  config :delete_on_success, :validate => :boolean, :default => false
-  config :visibility_timeout, :validate => :number, :default => 600
+  config :visibility_timeout, :validate => :number, :default => 120
+  config :max_processing_time, :validate => :number, :default => 8000
 
   ### system
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
@@ -185,7 +186,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   def register
     # prepare system
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
-
+    @id ||= "Unknown" #Use INPUT{ id => name} for thread identifier
     @credentials_by_bucket = hash_key_is_regex({})
     # create the bucket=>folder=>codec lookup from config options
     @codec_by_folder = hash_key_is_regex({})
@@ -238,12 +239,18 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @received_stop = Concurrent::AtomicBoolean.new(false)
 
     # instantiate helpers
-    @sqs_poller = SqsPoller.new(@logger, @received_stop, @queue, {
-      queue_owner_aws_account_id: @queue_owner_aws_account_id,
-      from_sns: @from_sns,
-      sqs_explicit_delete: @sqs_explicit_delete,
-      visibility_timeout: @visibility_timeout
-    }, aws_options_hash)
+    @sqs_poller = SqsPoller.new(@logger, @received_stop,
+      {
+        visibility_timeout: @visibility_timeout,
+        skip_delete: @sqs_skip_delete
+      },
+      {
+        sqs_queue: @queue,
+        queue_owner_aws_account_id: @queue_owner_aws_account_id,
+        from_sns: @from_sns,
+        max_processing_time: @max_processing_time
+      },
+      aws_options_hash)
     @s3_client_factory = S3ClientFactory.new(@logger, {
       aws_region: @region,
       s3_default_options: @s3_default_options,
@@ -271,7 +278,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @queue_mutex = Mutex.new
     #@consumer_threads= 1
     @worker_threads = @consumer_threads.times.map do |thread_id|
-      run_worker_thread(logstash_event_queue, thread_id)
+      t = run_worker_thread(logstash_event_queue, thread_id)
+      #make thead start async to prevent polling the same message from sqs
+      sleep 0.5
+      t
     end
     # and wait (possibly infinitely) for them to shut down
     @worker_threads.each { |t| t.join }
@@ -301,14 +311,13 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   def run_worker_thread(queue, thread_id)
     Thread.new do
-      @logger.info("Starting new worker thread")
+      LogStash::Util.set_thread_name("Worker #{@id}/#{thread_id}")
+      @logger.info("[#{Thread.current[:name]}] started (#{Time.now})") #PROFILING
       temporary_directory = Dir.mktmpdir("#{@temporary_directory}/")
       @sqs_poller.run do |record|
         throw :skip_delete if stop?
-        @logger.debug("Outside Poller: got a record", :record => record)
         # record is a valid object with the keys ":bucket", ":key", ":size"
         record[:local_file] = File.join(temporary_directory, File.basename(record[:key]))
-        LogStash::Util.set_thread_name("[Processor #{thread_id} -  Working on: #{record[:key]}")
         if @s3_downloader.copy_s3object_to_disk(record)
           completed = catch(:skip_delete) do
             process(record, queue)
@@ -322,19 +331,18 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     end
   end
 
-  # Will be remove in further releases...
+  # Will be removed in further releases:
   def get_object_folder(key)
     if match = /#{s3_key_prefix}\/?(?<type_folder>.*?)\/.*/.match(key)
       return match['type_folder']
     else
-      #FIXME should be NIL instedt of empty sting?
       return ""
     end
   end
 
   def hash_key_is_regex(myhash)
     myhash.default_proc = lambda do |hash, lookup|
-      result=nil
+      result = nil
       hash.each_pair do |key, value|
         if %r[#{key}] =~ lookup
           result = value

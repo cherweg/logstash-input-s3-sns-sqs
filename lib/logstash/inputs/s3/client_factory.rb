@@ -13,7 +13,6 @@ class S3ClientFactory
     @logger.debug("Credentials by Bucket", :credentials => @credentials_by_bucket)
     @default_session_name = options[:s3_role_session_name]
     @clients_by_bucket = {}
-    #@mutexes_by_bucket = {}
     @creation_mutex = Mutex.new
   end
 
@@ -27,18 +26,13 @@ class S3ClientFactory
         end
         @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
         @logger.debug("Created a new S3 Client", :bucket_name => bucket_name, :client => @clients_by_bucket[bucket_symbol], :used_options => options)
-        #@mutexes_by_bucket[bucket_symbol] = Mutex.new
       end
     end
     # to be thread-safe, one uses this method like this:
     # s3_client_factory.get_s3_client(my_s3_bucket) do
     #   ... do stuff ...
     # end
-    # FIXME: this does not allow concurrent downloads from the same bucket!
-    #@mutexes_by_bucket[bucket_symbol].synchronize do
-    # So we are testing this without this mutex.
     yield @clients_by_bucket[bucket_symbol]
-    #end
   end
 
   private

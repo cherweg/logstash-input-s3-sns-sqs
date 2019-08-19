@@ -15,11 +15,13 @@ class SqsPoller
       # "DefaultVisibilityTimeout" for your queue so that there's enough time
       # to process the log files!)
       max_number_of_messages: 1,
-      visibility_timeout: 600,
+      visibility_timeout: 10,
       # long polling; by default we use the queue's setting.
       # A good value is 10 seconds to to balance between a quick logstash
       # shutdown and fewer api calls.
       wait_time_seconds: nil,
+      #attribute_names: ["All"], # Receive all available built-in message attributes.
+      #message_attribute_names: ["All"], # Receive any custom message attributes.
       skip_delete: false,
   }
 
@@ -33,20 +35,19 @@ class SqsPoller
 
   # initialization and setup happens once, outside the threads:
   #
-  def initialize(logger, stop_semaphore, sqs_queue, options = {}, aws_options_hash)
+  def initialize(logger, stop_semaphore, poller_options = {}, client_options = {}, aws_options_hash)
     @logger = logger
     @stopped = stop_semaphore
-    @queue = sqs_queue
-    # @stopped = false # FIXME: needed per thread?
-    @from_sns = options[:from_sns]
-    @options = DEFAULT_OPTIONS.merge(options.reject { |k| [:sqs_explicit_delete, :from_sns, :queue_owner_aws_account_id, :sqs_skip_delete].include? k })
-    @options[:skip_delete] = options[:sqs_skip_delete]
+    @queue = client_options[:sqs_queue]
+    @from_sns = client_options[:from_sns]
+    @max_processing_time = client_options[:max_processing_time]
+    @options = DEFAULT_OPTIONS.merge(poller_options)
     begin
       @logger.info("Registering SQS input", :queue => @queue)
       sqs_client = Aws::SQS::Client.new(aws_options_hash)
       queue_url = sqs_client.get_queue_url({
         queue_name: @queue,
-        queue_owner_aws_account_id: @options[:queue_owner_aws_account_id]
+        queue_owner_aws_account_id: client_options[:queue_owner_aws_account_id]
       }).queue_url # is a method according to docs. Was [:queue_url].
       @poller = Aws::SQS::QueuePoller.new(queue_url,
         :client => sqs_client
@@ -57,13 +58,11 @@ class SqsPoller
     end
   end
 
-  #
   # this is called by every worker thread:
-  #
   def run() # not (&block) - pass explicitly (use yield below)
     # per-thread timer to extend visibility if necessary
     extender = nil
-    message_backoff = (@options[:visibility_timeout] * 90).to_f / 100.0
+    message_backoff = (@options[:visibility_timeout] * 95).to_f / 100.0
     new_visibility = 2 * @options[:visibility_timeout]
 
     # "shutdown handler":
@@ -79,19 +78,39 @@ class SqsPoller
     end
 
     run_with_backoff do
+      message_count = 0 #PROFILING
       @poller.poll(@options) do |message|
-        @logger.debug("Inside Poller: polled message", :message => message)
-        # auto-double the timeout if processing takes too long:
+        message_count += 1 #PROFILING
+        message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        # auto-increase the timeout if processing takes too long:
+        poller_thread = Thread.current
         extender = Thread.new do
-          sleep message_backoff
-          @logger.info("Extending visibility for message", :message => message)
-          @poller.change_message_visibility_timeout(message, new_visibility)
+          while new_visibility < @max_processing_time do
+            sleep message_backoff
+            begin
+              @poller.change_message_visibility_timeout(message, new_visibility)
+              @logger.warn("[#{Thread.current[:name]}] Extended visibility for a long running message", :visibility => new_visibility) if new_visibility > 600.0
+              new_visibility += message_backoff
+            rescue Aws::SQS::Errors::InvalidParameterValue => e
+              @logger.debug("Extending visibility failed for message", :error => e)
+            else
+              @logger.debug("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
+            end
+          end
+          @logger.error("[#{Thread.current[:name]}] Maximum visibility reached! We will delete this message from queue!")
+          @poller.delete_message(message)
+          poller_thread.raise "[#{poller_thread[:name]}] Maximum visibility reached...!".freeze
         end
+        extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false
+        record_count = 0
         begin
-          preprocess(message) do |record|
-            #@logger.info("we got a record", :record => record)
-            yield(record) #unless record.nil? - unnecessary; implicit
+          message_completed = catch(:skip_delete) do
+            preprocess(message) do |record|
+              record_count += 1
+              extender[:name] = "#{Thread.current[:name]}/extender/#{record[:key]}" #PROFILING
+              yield(record)
+            end
           end
         rescue Exception => e
           @logger.warn("Error in poller loop", :error => e)
@@ -100,9 +119,14 @@ class SqsPoller
         end
         # at this time the extender has either fired or is obsolete
         extender.kill
-        #@logger.info("Inside Poller: killed background thread", :message => message)
         extender = nil
-        throw :skip_delete if failed
+        message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
+        unless message_completed
+          @logger.info("[#{Thread.current[:name]}] uncompleted message  at the end of poller loop. We´ll throw skip_delete.", :message => message_count)
+          extender.run
+        end
+        throw :skip_delete if failed or ! message_completed
+        #@logger.info("[#{Thread.current[:name]}] completed message.", :message => message_count)
       end
     end
   end
@@ -132,20 +156,8 @@ class SqsPoller
           bucket: bucket,
           key: key,
           size: size,
-          folder: get_type_folder(key)
+          folder: get_object_path(key)
         })
-
-        # -v- this stuff goes into s3 and processor handling: -v-
-
-        # type_folder = get_object_folder(key)
-        # Set input codec by :set_codec_by_folder
-        # instance_codec = set_codec(type_folder) unless set_codec_by_folder["#{type_folder}"].nil?
-        # try download and :skip_delete if it fails
-        #if record['s3']['object']['size'] < 10000000 then
-        # process_log(bucket, key, type_folder, instance_codec, queue, message, size)
-        #else
-        #  @logger.info("Your file is too big")
-        #end
       end
     end
   end
@@ -171,11 +183,7 @@ class SqsPoller
     end
   end
 
-  def get_type_folder(key)
-    # TEST THIS!
-    # if match = /.*\/?(?<type_folder>)\/[^\/]*.match(key)
-    #   return match['type_folder']
-    # end
+  def get_object_path(key)
     folder = ::File.dirname(key)
     return '' if folder == '.'
     return folder
