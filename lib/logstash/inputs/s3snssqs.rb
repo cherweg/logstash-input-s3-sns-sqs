@@ -169,8 +169,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
-  config :visibility_timeout, :validate => :number, :default => 10
-  config :max_processing_time, :validate => :number, :default => 900
+  config :visibility_timeout, :validate => :number, :default => 120
+  config :max_processing_time, :validate => :number, :default => 8000
 
   ### system
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")

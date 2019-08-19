@@ -1,3 +1,8 @@
+##2.0.3
+- Increase max parsing time -> drop event if reached
+- watcher thread should raise an error in poller loop if timeout reached.
+- remove some debug logs
+
 ##2.0.2
 FIX:
 - Terminate every input line by \n (BufferedReader does not)

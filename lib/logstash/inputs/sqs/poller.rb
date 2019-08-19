@@ -83,11 +83,13 @@ class SqsPoller
         message_count += 1 #PROFILING
         message_t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         # auto-increase the timeout if processing takes too long:
+        poller_thread = Thread.current
         extender = Thread.new do
           while new_visibility < @max_processing_time do
             sleep message_backoff
             begin
               @poller.change_message_visibility_timeout(message, new_visibility)
+              @logger.warn("[#{Thread.current[:name]}] Extended visibility for a long running message", :visibility => new_visibility) if new_visibility > 600.0
               new_visibility += message_backoff
             rescue Aws::SQS::Errors::InvalidParameterValue => e
               @logger.debug("Extending visibility failed for message", :error => e)
@@ -95,7 +97,9 @@ class SqsPoller
               @logger.debug("[#{Thread.current[:name]}] Extended visibility for message", :visibility => new_visibility) #PROFILING
             end
           end
-          @logger.error("[#{Thread.current[:name]}] Maximum visibility reached!")
+          @logger.error("[#{Thread.current[:name]}] Maximum visibility reached! We will delete this message from queue!")
+          @poller.delete_message(message)
+          poller_thread.raise "[#{poller_thread[:name]}] Maximum visibility reached...!".freeze
         end
         extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false
@@ -118,10 +122,11 @@ class SqsPoller
         extender = nil
         message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         unless message_completed
-          @logger.info("[#{Thread.current[:name]}] setting visibility to 0", :message => message_count)
-          @poller.change_message_visibility_timeout(message, 0)
+          @logger.info("[#{Thread.current[:name]}] uncompleted message  at the end of poller loop. We´ll throw skip_delete.", :message => message_count)
+          extender.run
         end
         throw :skip_delete if failed or ! message_completed
+        #@logger.info("[#{Thread.current[:name]}] completed message.", :message => message_count)
       end
     end
   end
