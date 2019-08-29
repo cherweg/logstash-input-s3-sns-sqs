@@ -122,7 +122,7 @@ class SqsPoller
         extender = nil
         message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         unless message_completed
-          @logger.info("[#{Thread.current[:name]}] uncompleted message  at the end of poller loop. We´ll throw skip_delete.", :message => message_count)
+          @logger.debug("[#{Thread.current[:name]}] uncompleted message at the end of poller loop. We´ll throw skip_delete.", :message_count => message_count)
           extender.run
         end
         throw :skip_delete if failed or ! message_completed
@@ -138,7 +138,7 @@ class SqsPoller
   end
 
   def preprocess(message)
-    @logger.debug("Inside Preprocess: Start", :message => message)
+    @logger.debug("Inside Preprocess: Start", :event => message)
     payload = JSON.parse(message.body)
     payload = JSON.parse(payload['Message']) if @from_sns
     @logger.debug("Payload in Preprocess: ", :payload => payload)
