@@ -104,7 +104,12 @@ module LogProcessor
     decoder.close unless decoder.nil?
     gzip_stream.close unless gzip_stream.nil?
     file_stream.close unless file_stream.nil?
-    throw :skip_delete unless completed
+
+    unless completed
+      @logger.warn("[#{Thread.current[:name]}] Incomplete message in read_file. We´ll throw skip_delete.", :filename => filename)
+      throw :skip_delete
+    end
+
   end
 
   def event_is_metadata?(event)

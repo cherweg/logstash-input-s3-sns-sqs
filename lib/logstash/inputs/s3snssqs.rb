@@ -290,13 +290,16 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # shutdown
   def stop
     @received_stop.make_true
-    @worker_threads.each do |worker|
-      begin
-        @logger.info("Stopping thread ... ", :thread => worker.inspect)
-        worker.wakeup
-      rescue
-        @logger.error("Cannot stop thread ... try to kill him", :thread => worker.inspect)
-        worker.kill
+
+    unless @worker_threads.nil?
+      @worker_threads.each do |worker|
+        begin
+          @logger.info("Stopping thread ... ", :thread => worker.inspect)
+          worker.wakeup
+        rescue
+          @logger.error("Cannot stop thread ... try to kill him", :thread => worker.inspect)
+          worker.kill
+        end
       end
     end
   end
