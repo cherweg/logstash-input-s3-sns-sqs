@@ -14,7 +14,7 @@ module LogProcessor
     file = record[:local_file]
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
-    type = @type_by_folder[folder]
+    type = @type_by_folder[record[:bucket]][folder]
     metadata = {}
     line_count = 0
     event_count = 0
