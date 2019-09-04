@@ -1,3 +1,9 @@
+##2.0.5
+-fix: crash on 0 byte file
+-fix: type by folder function
+##2.0.4
+-fix: type-by-folder repair
+-fix: crash on 0 byte file
 ##2.0.3
 - Increase max parsing time -> drop event if reached
 - watcher thread should raise an error in poller loop if timeout reached.

@@ -81,8 +81,8 @@ module LogProcessor
   end
 
   def read_file(filename)
-    completed = false
     zipped = gzip?(filename)
+    completed = false
     file_stream = FileInputStream.new(filename)
     if zipped
       gzip_stream = GZIPInputStream.new(file_stream)
