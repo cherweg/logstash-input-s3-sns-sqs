@@ -10,7 +10,8 @@ class MagicGzipValidator
     # Ensure there are sufficient number of bytes to determine the
     # signature.
     if file.stat.size < minimum_bytes_for_determining_signature
-      raise "File too small to calculate signature"
+      puts "File too small to calculate signature"
+      throw :skip_delete
     end
 
     @file = file
