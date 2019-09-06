@@ -117,14 +117,14 @@ class SqsPoller
           @logger.warn("Backtrace:\n\t#{e.backtrace.join("\n\t")}")
           failed = true
         end
-        # at this time the extender has either fired or is obsolete
-        extender.kill
-        extender = nil
         message_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
         unless message_completed
           @logger.debug("[#{Thread.current[:name]}] uncompleted message at the end of poller loop. We´ll throw skip_delete.", :message_count => message_count)
           extender.run
         end
+        # at this time the extender has either fired or is obsolete
+        extender.kill
+        extender = nil
         throw :skip_delete if failed or ! message_completed
         #@logger.info("[#{Thread.current[:name]}] completed message.", :message => message_count)
       end

@@ -14,7 +14,7 @@ module LogProcessor
     file = record[:local_file]
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
-    type = @type_by_folder[folder]
+    type = @type_by_folder[record[:bucket]][folder]
     metadata = {}
     line_count = 0
     event_count = 0
@@ -81,8 +81,8 @@ module LogProcessor
   end
 
   def read_file(filename)
-    completed = false
     zipped = gzip?(filename)
+    completed = false
     file_stream = FileInputStream.new(filename)
     if zipped
       gzip_stream = GZIPInputStream.new(file_stream)
