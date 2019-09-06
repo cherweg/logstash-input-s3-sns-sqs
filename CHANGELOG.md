@@ -1,3 +1,5 @@
+##2.0.6
+-fix: fix crash of extender
 ##2.0.5
 -fix: crash on 0 byte file
 -fix: type by folder function
