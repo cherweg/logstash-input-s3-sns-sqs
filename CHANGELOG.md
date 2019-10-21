@@ -1,3 +1,5 @@
+##2.0.9
+-gzip dectection should return false for files smaller than gzip_signiture_bytes
 ##2.0.8
 -fix nil class error
 ##2.0.7
