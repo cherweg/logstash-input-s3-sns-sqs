@@ -1,3 +1,7 @@
+##2.0.8
+-fix nil class error
+##2.0.7
+-fix gem error
 ##2.0.6
 -fix: fix crash of extender
 ##2.0.5
