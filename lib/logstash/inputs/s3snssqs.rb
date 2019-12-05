@@ -289,6 +289,17 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       t
     end
 
+    # and wait (possibly infinitely) for them to shut down
+    watcher = Thread.new do
+      while not stop?
+        sleep 0.001
+        @worker_threads.each_with_index do |t, i|
+          if t.status.nil?
+            @worker_threads[i] = run_worker_thread(logstash_event_queue, thread_id)
+          end
+      end
+    end
+
     @worker_threads.each { |t| t.join }
   end
 
