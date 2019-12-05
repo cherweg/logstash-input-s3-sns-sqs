@@ -1,3 +1,6 @@
+##2.1.0
+- FEATURE: Add S3 metadata -> config :include_object_properties
+- FEATURE: Watch for threads in exception state and restart...
 ##2.0.9
 -gzip dectection should return false for files smaller than gzip_signiture_bytes
 ##2.0.8
