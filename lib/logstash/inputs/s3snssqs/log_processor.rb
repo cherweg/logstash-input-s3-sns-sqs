@@ -14,7 +14,7 @@ module LogProcessor
     file = record[:local_file]
     codec = @codec_factory.get_codec(record)
     folder = record[:folder]
-    type = @type_by_folder[folder]
+    type = @type_by_folder.fetch(record[:bucket],{})[folder]
     metadata = {}
     line_count = 0
     event_count = 0
@@ -31,7 +31,7 @@ module LogProcessor
       # Decoding a line must not last longer than a few seconds. Otherwise, the file is probably corrupt.
       codec.decode(line) do |event|
         event_count += 1
-        decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+        decorate_event(event, metadata, type, record[:key], record[:bucket], record[:s3_data])
         #event_time = Time.now #PROFILING
         #event.set("[@metadata][progress][begin]", start_time)
         #event.set("[@metadata][progress][index_time]", event_time)
@@ -45,7 +45,7 @@ module LogProcessor
     # ensure any stateful codecs (such as multi-line ) are flushed to the queue
     codec.flush do |event|
       event_count += 1
-      decorate_event(event, metadata, type, record[:key], record[:bucket], folder)
+      decorate_event(event, metadata, type, record[:key], record[:bucket], record[:s3_data])
       @logger.debug("[#{Thread.current[:name]}] Flushing an incomplete event", :event => event.to_s)
       logstash_event_queue << event
     end
@@ -55,7 +55,7 @@ module LogProcessor
 
   private
 
-  def decorate_event(event, metadata, type, key, bucket, folder)
+  def decorate_event(event, metadata, type, key, bucket, s3_data)
     if event_is_metadata?(event)
       @logger.debug('Updating the current cloudfront metadata', :event => event)
       update_metadata(metadata, event)
@@ -67,9 +67,11 @@ module LogProcessor
       event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
       event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
 
+      event.set("[@metadata][s3]", s3_data || {})
       event.set("[@metadata][s3][object_key]", key)
       event.set("[@metadata][s3][bucket_name]", bucket)
       event.set("[@metadata][s3][object_folder]", get_object_folder(key))
+
     end
   end
 
@@ -81,8 +83,8 @@ module LogProcessor
   end
 
   def read_file(filename)
-    completed = false
     zipped = gzip?(filename)
+    completed = false
     file_stream = FileInputStream.new(filename)
     if zipped
       gzip_stream = GZIPInputStream.new(file_stream)

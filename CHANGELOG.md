@@ -1,3 +1,20 @@
+##2.1.0
+- FEATURE: Add S3 metadata -> config :include_object_properties
+- FEATURE: Watch for threads in exception state and restart...
+##2.0.9
+-gzip dectection should return false for files smaller than gzip_signiture_bytes
+##2.0.8
+-fix nil class error
+##2.0.7
+-fix gem error
+##2.0.6
+-fix: fix crash of extender
+##2.0.5
+-fix: crash on 0 byte file
+-fix: type by folder function
+##2.0.4
+-fix: type-by-folder repair
+-fix: crash on 0 byte file
 ##2.0.3
 - Increase max parsing time -> drop event if reached
 - watcher thread should raise an error in poller loop if timeout reached.

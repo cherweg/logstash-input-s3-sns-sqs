@@ -9,6 +9,7 @@ class S3Downloader
     @stopped = stop_semaphore
     @factory = options[:s3_client_factory]
     @delete_on_success = options[:delete_on_success]
+    @include_object_properties = options[:include_object_properties]
   end
 
   def copy_s3object_to_disk(record)
@@ -21,6 +22,7 @@ class S3Downloader
           key: record[:key],
           response_target: record[:local_file]
         )
+        record[:s3_data] = response.to_h if @include_object_properties
       end
     rescue Aws::S3::Errors::ServiceError => e
       @logger.error("Unable to download file. Requeuing the message", :error => e, :record => record)

@@ -54,10 +54,10 @@ input {
         { bucket_name => "logs-bucket-333333333333-eu-central-1"
           credentials => { role => "arn:aws:iam::333333333333:role/logging-role" }
           folders => [
-          { key => ".*/waflogs.*"
+          { key => ".*\/waflogs.*"
             codec => "json_stream"
             type => "waflogs"},
-          { key => ".*/2020"
+          { key => ".*\/2020"
             codec => "json_lines"
             type => "reports"}]
         }
