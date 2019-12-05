@@ -161,6 +161,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Session name to use when assuming an IAM role
   config :s3_role_session_name, :validate => :string, :default => "logstash"
   config :delete_on_success, :validate => :boolean, :default => false
+  # Whether or not to include the S3 object's properties (last_modified, content_type, metadata)
+  # into each Event at [@metadata][s3]. Regardless of this setting, [@metdata][s3][key] will always
+  # be present.
+  config :include_object_properties, :validate => :boolean, :default => false
 
   ### sqs
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
@@ -259,7 +263,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     }, aws_options_hash)
     @s3_downloader = S3Downloader.new(@logger, @received_stop, {
       s3_client_factory: @s3_client_factory,
-      delete_on_success: @delete_on_success
+      delete_on_success: @delete_on_success,
+      include_object_properties: @include_object_properties
     })
     @codec_factory = CodecFactory.new(@logger, {
       default_codec: @codec,
@@ -283,7 +288,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       sleep 0.5
       t
     end
-    # and wait (possibly infinitely) for them to shut down
+
     @worker_threads.each { |t| t.join }
   end
 
