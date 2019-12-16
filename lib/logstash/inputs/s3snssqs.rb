@@ -278,29 +278,18 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
 
   # startup
   def run(logstash_event_queue)
-    #LogStash::ShutdownWatcher.abort_threshold(30)
-    # start them
-    @queue_mutex = Mutex.new
-    #@consumer_threads= 1
-    @worker_threads = @consumer_threads.times.map do |thread_id|
-      t = run_worker_thread(logstash_event_queue, thread_id)
-      #make thead start async to prevent polling the same message from sqs
-      sleep 0.5
-      t
-    end
-
-    # and wait (possibly infinitely) for them to shut down
-    watcher = Thread.new do
-      while not stop?
-        sleep 0.001
-        @worker_threads.each_with_index do |t, i|
-          if t.status.nil?
-            @worker_threads[i] = run_worker_thread(logstash_event_queue, thread_id)
-          end
+    @control_threads = @consumer_threads.times.map do |thread_id|
+      Thread.new do
+        while not stop?
+          sleep 0.5
+          worker_thread = run_worker_thread(logstash_event_queue, thread_id)
+          worker_thread.join
+        end
+        #make thead start async to prevent polling the same message from sqs
       end
     end
 
-    @worker_threads.each { |t| t.join }
+    @control_threads.each { |t| t.join }
   end
 
   # shutdown
@@ -327,7 +316,6 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # --- END plugin interface ------------------------------------------#
 
   private
-
   def run_worker_thread(queue, thread_id)
     Thread.new do
       LogStash::Util.set_thread_name("Worker #{@id}/#{thread_id}")
