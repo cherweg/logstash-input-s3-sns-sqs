@@ -77,7 +77,7 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 | <<plugins-{type}s-{plugin}-s3_default_options>> |<<hash,hash>>|No
 | <<plugins-{type}s-{plugin}-s3_role_session_name>> |<<string,string>>|yes
 | <<plugins-{type}s-{plugin}-delete_on_success>>|<<boolean,boolean>>|No
-| <<plugins-{type}s-{plugin}-include_object_properties |<<array,array>>|No
+| <<plugins-{type}s-{plugin}-include_object_properties>>|<<array,array>>|No
 | <<plugins-{type}s-{plugin}-from_sns>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-sqs_skip_delete>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-sqs_delete_on_failure>> |<<boolean,boolean>>|No
