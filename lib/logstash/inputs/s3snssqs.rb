@@ -164,7 +164,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether or not to include the S3 object's properties (last_modified, content_type, metadata)
   # into each Event at [@metadata][s3]. Regardless of this setting, [@metdata][s3][key] will always
   # be present.
-  config :include_object_properties, :validate => :boolean, :default => false
+  config :include_object_properties, :validate => :array, :default => [:last_modified, :content_type, :metadata]
 
   ### sqs
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
@@ -173,9 +173,10 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
+  config :sqs_delete_on_failure, :validate => :boolean, :default => true
+
   config :visibility_timeout, :validate => :number, :default => 120
   config :max_processing_time, :validate => :number, :default => 8000
-
   ### system
   config :temporary_directory, :validate => :string, :default => File.join(Dir.tmpdir, "logstash")
   # To run in multiple threads use this
@@ -252,7 +253,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         sqs_queue: @queue,
         queue_owner_aws_account_id: @queue_owner_aws_account_id,
         from_sns: @from_sns,
-        max_processing_time: @max_processing_time
+        max_processing_time: @max_processing_time,
+        sqs_delete_on_failure: @sqs_delete_on_failure
       },
       aws_options_hash)
     @s3_client_factory = S3ClientFactory.new(@logger, {
@@ -280,15 +282,18 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   def run(logstash_event_queue)
     @control_threads = @consumer_threads.times.map do |thread_id|
       Thread.new do
+        restart_count = 0
         while not stop?
+          #make thead start async to prevent polling the same message from sqs
           sleep 0.5
           worker_thread = run_worker_thread(logstash_event_queue, thread_id)
           worker_thread.join
+          restart_count += 1
+          thread_id = "#{thread_id}_#{restart_count}"
+          @logger.info("[control_thread] restarting a thread #{thread_id}... ", :thread => worker_thread.inspect)
         end
-        #make thead start async to prevent polling the same message from sqs
       end
     end
-
     @control_threads.each { |t| t.join }
   end
 

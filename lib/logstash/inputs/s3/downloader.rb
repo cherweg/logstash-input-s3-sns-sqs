@@ -22,7 +22,7 @@ class S3Downloader
           key: record[:key],
           response_target: record[:local_file]
         )
-        record[:s3_data] = response.to_h if @include_object_properties
+        record[:s3_data] = response.to_h.keep_if { |key| @include_object_properties.include?(key) }
       end
     rescue Aws::S3::Errors::ServiceError => e
       @logger.error("Unable to download file. Requeuing the message", :error => e, :record => record)

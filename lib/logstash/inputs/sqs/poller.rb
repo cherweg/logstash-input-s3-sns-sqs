@@ -41,6 +41,7 @@ class SqsPoller
     @queue = client_options[:sqs_queue]
     @from_sns = client_options[:from_sns]
     @max_processing_time = client_options[:max_processing_time]
+    @sqs_delete_on_failure = client_options[:sqs_delete_on_failure]
     @options = DEFAULT_OPTIONS.merge(poller_options)
     begin
       @logger.info("Registering SQS input", :queue => @queue)
@@ -86,6 +87,7 @@ class SqsPoller
         poller_thread = Thread.current
         extender = Thread.new do
           while new_visibility < @max_processing_time do
+
             sleep message_backoff
             begin
               @poller.change_message_visibility_timeout(message, new_visibility)
@@ -98,8 +100,8 @@ class SqsPoller
             end
           end
           @logger.error("[#{Thread.current[:name]}] Maximum visibility reached! We will delete this message from queue!")
-          @poller.delete_message(message)
-          poller_thread.raise "[#{poller_thread[:name]}] Maximum visibility reached...!".freeze
+          @poller.delete_message(message) if @sqs_delete_on_failure
+          poller_thread.kill
         end
         extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false

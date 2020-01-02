@@ -67,7 +67,7 @@ module LogProcessor
       event.set("cloudfront_version", metadata[:cloudfront_version]) unless metadata[:cloudfront_version].nil?
       event.set("cloudfront_fields", metadata[:cloudfront_fields]) unless metadata[:cloudfront_fields].nil?
 
-      event.set("[@metadata][s3]", s3_data || {})
+      event.set("[@metadata][s3]", s3_data)
       event.set("[@metadata][s3][object_key]", key)
       event.set("[@metadata][s3][bucket_name]", bucket)
       event.set("[@metadata][s3][object_folder]", get_object_folder(key))

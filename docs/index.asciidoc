@@ -79,9 +79,11 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 | <<plugins-{type}s-{plugin}-delete_on_success>>|<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-from_sns>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-sqs_skip_delete>> |<<boolean,boolean>>|No
+| <<plugins-{type}s-{plugin}-sqs_delete_on_failure>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
 | <<plugins-{type}s-{plugin}-consumer_threads>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-visibility_timeout>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-max_processing_time>> |<<number,number>>|8000
 |=======================================================================
 
 Also see <<plugins-{type}s-{plugin}-common-options>> for a list of options supported by all
@@ -159,9 +161,26 @@ Set S3::Clients Session name
 ===== `delete_on_success` 
 
   * Value type is <<boolean,boolean>>
-  * There is no default value for this setting.
+  * The default value for this setting is FALSE.
 
 delete files from S3 after success
+
+[id="plugins-{type}s-{plugin}-include_object_properties"]
+===== `include_object_properties`
+
+  * Value type is <<array,array>>
+  * The default value for this setting is [:last_modified, :content_type, :metadata]
+
+
+include object properties from S3 files and add as metadata to the logstash event.
+This properties are accessible inside of the logstash pipeline:
+
+Example:
+[source,ruby]
+    mutate {
+        add_field => {
+            "meta-s3-content_type" => "%{[@metadata][s3][content_type]}"
+        }
 
 [id="plugins-{type}s-{plugin}-from_sns"]
 ===== `from_sns` 
@@ -179,6 +198,15 @@ The message format is different, if the message comes from SNS.
 
 Skip the delete on success of sqs messages e.g. for local debugging.
 Messages will be requeued after visibility timeout.
+
+[id="plugins-{type}s-{plugin}-sqs_delete_on_failure"]
+===== `sqs_delete_on_failure`
+
+  * Value type is <<boolean,boolean>>
+  * The default value for this setting is FALSE.
+
+Skip delete of sqs messages causing a hard error or timeout inside the poller and try again.
+Maybe you are lucky...maybe you are not.
 
 [id="plugins-{type}s-{plugin}-temporary_directory"]
 ===== `temporary_directory` 
@@ -204,9 +232,17 @@ How many SQS reader should be started
   * Value type is <<number,number>>
   * Default: 5 Minutes.
 
-The maximum processing time for an S3 File. If there is no 
+The default visibility timeout for an SQS Message. If there is no
 "exit 0, successfull" from the codeblock the SQS message will be
-reprocessed.
+reprocessed after reaching max_processing_time.
+
+[id="plugins-{type}s-{plugin}-max_processing_time"]
+===== `max_processing_time`
+
+  * Value type is <<number,number>>
+  * Default: 8000 seconds
+
+The hard limit processing an SQS/S3 message block
 
 [id="plugins-{type}s-{plugin}-common-options"]
 include::{include_path}/{type}.asciidoc[]
