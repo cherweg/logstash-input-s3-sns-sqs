@@ -193,6 +193,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     FileUtils.mkdir_p(@temporary_directory) unless Dir.exist?(@temporary_directory)
     @id ||= "Unknown" #Use INPUT{ id => name} for thread identifier
     @credentials_by_bucket = hash_key_is_regex({})
+    @region_by_bucket = hash_key_is_regex({})
     # create the bucket=>folder=>codec lookup from config options
     @codec_by_folder = hash_key_is_regex({})
     @type_by_folder = hash_key_is_regex({})
@@ -226,6 +227,9 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       bucket = options['bucket_name']
       if options.key?('credentials')
         @credentials_by_bucket[bucket] = options['credentials']
+      end
+      if options.key?('region')
+        @region_by_bucket[bucket] = options['region']
       end
       if options.key?('folders')
         # make these hashes do key lookups using regex matching
@@ -261,6 +265,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
       aws_region: @region,
       s3_default_options: @s3_default_options,
       s3_credentials_by_bucket: @credentials_by_bucket,
+      s3_region_by_bucket: @region_by_bucket,
       s3_role_session_name: @s3_role_session_name
     }, aws_options_hash)
     @s3_downloader = S3Downloader.new(@logger, @received_stop, {
