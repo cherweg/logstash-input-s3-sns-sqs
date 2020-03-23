@@ -10,6 +10,7 @@ class S3ClientFactory
     @aws_options_hash.merge!(@s3_default_options) unless @s3_default_options.empty?
     @sts_client = Aws::STS::Client.new(region: options[:aws_region])
     @credentials_by_bucket = options[:s3_credentials_by_bucket]
+    @region_by_bucket = options[:s3_region_by_bucket]
     @logger.debug("Credentials by Bucket", :credentials => @credentials_by_bucket)
     @default_session_name = options[:s3_role_session_name]
     @clients_by_bucket = {}
@@ -23,6 +24,9 @@ class S3ClientFactory
         options = @aws_options_hash.clone
         unless @credentials_by_bucket[bucket_name].nil?
           options.merge!(credentials: get_s3_auth(@credentials_by_bucket[bucket_name]))
+        end
+        unless @region_by_bucket[bucket_name].nil?
+          options.merge!(region: @region_by_bucket[bucket_name])
         end
         @clients_by_bucket[bucket_symbol] = Aws::S3::Client.new(options)
         @logger.debug("Created a new S3 Client", :bucket_name => bucket_name, :client => @clients_by_bucket[bucket_symbol], :used_options => options)
