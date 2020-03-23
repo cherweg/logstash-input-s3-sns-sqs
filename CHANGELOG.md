@@ -1,6 +1,6 @@
 ##2.1.1
 - FEATURE: Enable Multiregion Support for included S3 client.
-
+- Add region by bucket feature
 ##2.1.0
 - FEATURE: Add S3 metadata -> config :include_object_properties
 - FEATURE: Watch for threads in exception state and restart...
