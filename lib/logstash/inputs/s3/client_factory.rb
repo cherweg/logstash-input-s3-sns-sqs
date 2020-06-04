@@ -52,7 +52,7 @@ class S3ClientFactory
       )
     elsif credentials.key?('access_key_id') && credentials.key?('secret_access_key')
       @logger.debug("Fetch credentials", :access_key => credentials['access_key_id'])
-      return Aws::Credentials.new(credentials)
+      return Aws::Credentials.new(credentials['access_key_id'], credentials['secret_access_key'])
     end
   end
 
