@@ -70,7 +70,7 @@ class SqsPoller
     @poller.before_request do |_|
       if stop?
         # kill visibility extender thread if active?
-        extender.kill if extender
+        extender.wakeup if extender
         extender = nil
         @logger.warn('issuing :stop_polling on "stop?" signal', :queue => @queue)
         # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
@@ -101,7 +101,7 @@ class SqsPoller
           end
           @logger.error("[#{Thread.current[:name]}] Maximum visibility reached! We will delete this message from queue!")
           @poller.delete_message(message) if @sqs_delete_on_failure
-          poller_thread.kill
+          poller_thread.wakeup
         end
         extender[:name] = "#{Thread.current[:name]}/extender" #PROFILING
         failed = false
@@ -125,7 +125,7 @@ class SqsPoller
           extender.run if extender
         end
         # at this time the extender has either fired or is obsolete
-        extender.kill if extender
+        extender.wakeup if extender
         extender = nil
         throw :skip_delete if failed or ! message_completed
         #@logger.info("[#{Thread.current[:name]}] completed message.", :message => message_count)
