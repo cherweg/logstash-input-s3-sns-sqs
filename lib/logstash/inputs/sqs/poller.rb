@@ -70,7 +70,7 @@ class SqsPoller
     @poller.before_request do |_|
       if stop?
         # kill visibility extender thread if active?
-        extender.wakeup if extender
+        extender.kill if extender
         extender = nil
         @logger.warn('issuing :stop_polling on "stop?" signal', :queue => @queue)
         # this can take up to "Receive Message Wait Time" (of the sqs queue) seconds to be recognized
@@ -125,7 +125,7 @@ class SqsPoller
           extender.run if extender
         end
         # at this time the extender has either fired or is obsolete
-        extender.wakeup if extender
+        extender.kill if extender
         extender = nil
         throw :skip_delete if failed or ! message_completed
         #@logger.info("[#{Thread.current[:name]}] completed message.", :message => message_count)
