@@ -98,7 +98,7 @@ input plugins.
   * Value type is <<string,string>>
   * There is no default value for this setting.
 
-a valid SQS queue name
+a valid SQS queue name or queue-url
 
 [id="plugins-{type}s-{plugin}-queue_owner_aws_account_id"]
 ===== `queue_owner_aws_account_id` 
