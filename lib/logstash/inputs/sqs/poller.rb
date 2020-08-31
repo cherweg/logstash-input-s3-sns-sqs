@@ -46,13 +46,19 @@ class SqsPoller
     begin
       @logger.info("Registering SQS input", :queue => @queue)
       sqs_client = Aws::SQS::Client.new(aws_options_hash)
-      queue_url = sqs_client.get_queue_url({
-        queue_name: @queue,
-        queue_owner_aws_account_id: client_options[:queue_owner_aws_account_id]
-      }).queue_url # is a method according to docs. Was [:queue_url].
+      if uri?(@queue)
+        queue_url = @queue
+      else
+        queue_url = sqs_client.get_queue_url({
+          queue_name: @queue,
+          queue_owner_aws_account_id: client_options[:queue_owner_aws_account_id]
+        }).queue_url
+      end
+
       @poller = Aws::SQS::QueuePoller.new(queue_url,
         :client => sqs_client
       )
+      @logger.info("[#{Thread.current[:name]}] connected to queue.", :queue_url => queue_url)
     rescue Aws::SQS::Errors::ServiceError => e
       @logger.error("Cannot establish connection to Amazon SQS", :error => e)
       raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"
@@ -184,6 +190,16 @@ class SqsPoller
       retry
     end
   end
+
+  def uri?(string)
+    uri = URI.parse(string)
+    %w( http https ).include?(uri.scheme)
+  rescue URI::BadURIError
+    false
+  rescue URI::InvalidURIError
+    false
+  end
+
 
   def get_object_path(key)
     folder = ::File.dirname(key)

@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (2.1.0)
+    logstash-input-s3-sns-sqs (2.1.2)
       logstash-codec-json (~> 3.0)
       logstash-core-plugin-api (>= 2.1.12, <= 2.99)
       logstash-mixin-aws (~> 4.3)
@@ -9,19 +9,19 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
-    aws-eventstream (1.0.3)
-    aws-sdk (2.11.348)
-      aws-sdk-resources (= 2.11.348)
-    aws-sdk-core (2.11.348)
+    aws-eventstream (1.1.0)
+    aws-sdk (2.11.575)
+      aws-sdk-resources (= 2.11.575)
+    aws-sdk-core (2.11.575)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
-    aws-sdk-resources (2.11.348)
-      aws-sdk-core (= 2.11.348)
+    aws-sdk-resources (2.11.575)
+      aws-sdk-core (= 2.11.575)
     aws-sdk-v1 (1.67.0)
       json (~> 1.4)
       nokogiri (~> 1)
-    aws-sigv4 (1.1.0)
-      aws-eventstream (~> 1.0, >= 1.0.2)
+    aws-sigv4 (1.2.2)
+      aws-eventstream (~> 1, >= 1.0.2)
     chronic_duration (0.10.6)
       numerizer (~> 0.1.1)
     clamp (0.6.5)
@@ -106,7 +106,7 @@ GEM
     minitar (0.5.4)
     multi_json (1.13.1)
     multipart-post (2.1.1)
-    nokogiri (1.10.4-java)
+    nokogiri (1.10.10-java)
     numerizer (0.1.1)
     openssl_pkcs8_pure (0.0.0.2)
     polyglot (0.3.5)

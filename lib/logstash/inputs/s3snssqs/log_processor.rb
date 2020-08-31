@@ -26,17 +26,18 @@ module LogProcessor
         @logger.warn("[#{Thread.current[:name]}] Abort reading in the middle of the file, we will read it again when logstash is started")
         throw :skip_delete
       end
-      line = line.encode('UTF-8', 'binary', invalid: :replace, undef: :replace, replace: "\u2370")
-      # Potentially dangerous! See https://medium.com/@adamhooper/in-ruby-dont-use-timeout-77d9d4e5a001
-      # Decoding a line must not last longer than a few seconds. Otherwise, the file is probably corrupt.
-      codec.decode(line) do |event|
-        event_count += 1
-        decorate_event(event, metadata, type, record[:key], record[:bucket], record[:s3_data])
-        #event_time = Time.now #PROFILING
-        #event.set("[@metadata][progress][begin]", start_time)
-        #event.set("[@metadata][progress][index_time]", event_time)
-        #event.set("[@metadata][progress][line]", line_count)
-        logstash_event_queue << event
+      begin
+        codec.decode(line) do |event|
+          event_count += 1
+          decorate_event(event, metadata, type, record[:key], record[:bucket], record[:s3_data])
+          #event_time = Time.now #PROFILING
+          #event.set("[@metadata][progress][begin]", start_time)
+          #event.set("[@metadata][progress][index_time]", event_time)
+          #event.set("[@metadata][progress][line]", line_count)
+          logstash_event_queue << event
+        end
+      rescue Exception => e
+        @logger.error("[#{Thread.current[:name]}] Unable to decode line", :line => line, :error => e)
       end
     end
     file_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING

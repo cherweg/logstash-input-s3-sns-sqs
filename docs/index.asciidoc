@@ -84,6 +84,7 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 | <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
 | <<plugins-{type}s-{plugin}-consumer_threads>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-visibility_timeout>> |<<number,number>>|No
+| <<plugins-{type}s-{plugin}-sqs_wait_time_seconds>> |<<number,number>>|No
 | <<plugins-{type}s-{plugin}-max_processing_time>> |<<number,number>>|No
 |=======================================================================
 
@@ -98,7 +99,7 @@ input plugins.
   * Value type is <<string,string>>
   * There is no default value for this setting.
 
-a valid SQS queue name
+a valid SQS queue name or queue url
 
 [id="plugins-{type}s-{plugin}-queue_owner_aws_account_id"]
 ===== `queue_owner_aws_account_id` 
@@ -234,8 +235,17 @@ How many SQS reader should be started
   * Default: 5 Minutes.
 
 The default visibility timeout for an SQS Message. If there is no
-"exit 0, successfull" from the codeblock the SQS message will be
+"exit 0, successful" from the code block the SQS message will be
 reprocessed after reaching max_processing_time.
+
+[id="plugins-{type}s-{plugin}-sqs_wait_time_seconds"]
+===== `sqs_wait_time_seconds`
+
+  * Value type is <<number,number>>
+  * Default: NO.
+
+Enable sqs long polling in seconds.
+If not configured, the settings from your AWS SQS queue are respected.
 
 [id="plugins-{type}s-{plugin}-max_processing_time"]
 ===== `max_processing_time`
