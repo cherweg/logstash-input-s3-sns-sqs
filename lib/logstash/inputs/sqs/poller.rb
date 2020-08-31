@@ -54,9 +54,11 @@ class SqsPoller
           queue_owner_aws_account_id: client_options[:queue_owner_aws_account_id]
         }).queue_url
       end
+
       @poller = Aws::SQS::QueuePoller.new(queue_url,
         :client => sqs_client
       )
+      @logger.info("[#{Thread.current[:name]}] connected to queue.", :queue_url => queue_url)
     rescue Aws::SQS::Errors::ServiceError => e
       @logger.error("Cannot establish connection to Amazon SQS", :error => e)
       raise LogStash::ConfigurationError, "Verify the SQS queue name and your credentials"

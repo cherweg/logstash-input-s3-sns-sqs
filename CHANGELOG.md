@@ -1,5 +1,6 @@
 ##2.1.2
 - FEATURE: Now it´s possible to use queue urls and names.
+- FEATURE: Add sqs long polling config parameter: sqs_wait_time_seconds
 - FIX: Valid UTF-8 byte sequences in logs are munged
 - CLEANUP: Remove tests. (as a begin for clean testing)
 ##2.1.1

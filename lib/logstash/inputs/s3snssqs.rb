@@ -173,6 +173,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
   config :from_sns, :validate => :boolean, :default => true
   config :sqs_skip_delete, :validate => :boolean, :default => false
+  config :sqs_wait_time_seconds, :validate => :number, :required => false
   config :sqs_delete_on_failure, :validate => :boolean, :default => true
 
   config :visibility_timeout, :validate => :number, :default => 120
@@ -251,7 +252,8 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
     @sqs_poller = SqsPoller.new(@logger, @received_stop,
       {
         visibility_timeout: @visibility_timeout,
-        skip_delete: @sqs_skip_delete
+        skip_delete: @sqs_skip_delete,
+        wait_time_seconds: @sqs_wait_time_seconds
       },
       {
         sqs_queue: @queue,
