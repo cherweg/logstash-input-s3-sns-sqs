@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (2.1.0)
+    logstash-input-s3-sns-sqs (2.1.1)
       logstash-codec-json (~> 3.0)
       logstash-core-plugin-api (>= 2.1.12, <= 2.99)
       logstash-mixin-aws (~> 4.3)

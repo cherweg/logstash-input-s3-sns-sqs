@@ -38,6 +38,7 @@ module LogProcessor
         end
       rescue Exception => e
         @logger.error("[#{Thread.current[:name]}] Unable to decode line", :line => line, :error => e)
+      end
     end
     file_t1 = Process.clock_gettime(Process::CLOCK_MONOTONIC) #PROFILING
     processing_time = (file_t1 - file_t0)
