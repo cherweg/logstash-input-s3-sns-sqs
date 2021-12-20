@@ -22,7 +22,7 @@ Gem::Specification.new do |s|
   s.add_runtime_dependency "logstash-core-plugin-api", ">= 2.1.12", "<= 2.99"
 
   s.add_runtime_dependency 'logstash-codec-json', '~> 3.0'
-  s.add_runtime_dependency 'logstash-mixin-aws', '~> 4.3'
+  s.add_runtime_dependency 'logstash-mixin-aws', '>= 4.3'
   s.add_development_dependency 'logstash-codec-json_stream', '~> 1.0'
   s.add_development_dependency 'logstash-devutils', '~> 1.3'
 end
