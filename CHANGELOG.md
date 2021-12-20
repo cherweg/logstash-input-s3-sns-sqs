@@ -1,3 +1,6 @@
+##2.1.3
+-SECURITY: Raise MIXIN to a newer Version
+-fix: runs now on logstash 7.16
 ##2.1.2
 - FEATURE: Now it´s possible to use queue urls and names.
 - FEATURE: Add sqs long polling config parameter: sqs_wait_time_seconds
