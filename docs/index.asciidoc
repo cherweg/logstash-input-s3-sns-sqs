@@ -205,7 +205,7 @@ Messages will be requeued after visibility timeout.
 ===== `sqs_delete_on_failure`
 
   * Value type is <<boolean,boolean>>
-  * The default value for this setting is FALSE.
+  * Default: true
 
 Skip delete of sqs messages causing a hard error or timeout inside the poller and try again.
 Maybe you are lucky...maybe you are not.
@@ -232,7 +232,7 @@ How many SQS reader should be started
 ===== `visibility_timeout` 
 
   * Value type is <<number,number>>
-  * Default: 5 Minutes.
+  * Default: 120 seconds
 
 The default visibility timeout for an SQS Message. If there is no
 "exit 0, successful" from the code block the SQS message will be
