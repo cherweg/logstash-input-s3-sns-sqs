@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name            = 'logstash-input-s3-sns-sqs'
-  s.version         = '2.1.3'
+  s.version         = '2.2.0.pre.aws_sdk3'
   s.licenses        = ['Apache-2.0']
   s.summary         = "Get logs from AWS s3 buckets as issued by an object-created event via sns -> sqs."
   s.description     = "This gem is a logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/plugin install gemname. This gem is not a stand-alone program"
@@ -20,9 +20,21 @@ Gem::Specification.new do |s|
 
   # Gem dependencies
   s.add_runtime_dependency "logstash-core-plugin-api", ">= 2.1.12", "<= 2.99"
+  s.add_runtime_dependency "concurrent-ruby"
+  s.add_runtime_dependency "logstash-codec-json"
+  s.add_runtime_dependency "logstash-codec-plain"
+  s.add_runtime_dependency "aws-sdk-core", "~> 3"
+  s.add_runtime_dependency "aws-sdk-s3"
+  s.add_runtime_dependency "aws-sdk-sqs"
+  s.add_runtime_dependency "aws-sdk-sns"
+  s.add_runtime_dependency "aws-sdk-resourcegroups"
 
-  s.add_runtime_dependency 'logstash-codec-json', '~> 3.0'
-  s.add_runtime_dependency 'logstash-mixin-aws', '>= 4.3'
-  s.add_development_dependency 'logstash-codec-json_stream', '~> 1.0'
-  s.add_development_dependency 'logstash-devutils', '~> 1.3'
+  s.add_development_dependency "logstash-codec-json_lines"
+  s.add_development_dependency "logstash-codec-multiline"
+  s.add_development_dependency "logstash-codec-json"
+  s.add_development_dependency "logstash-codec-line"
+  s.add_development_dependency "logstash-devutils"
+  s.add_development_dependency "logstash-input-generator"
+  s.add_development_dependency "timecop"
+
 end

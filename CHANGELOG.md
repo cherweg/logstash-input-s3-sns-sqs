@@ -1,3 +1,5 @@
+##2.2.0
+-AWS-SDK-3 update
 ##2.1.3
 -SECURITY: Raise MIXIN to a newer Version
 -fix: runs now on logstash 7.16

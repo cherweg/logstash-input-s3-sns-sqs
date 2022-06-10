@@ -5,8 +5,9 @@ require "logstash/timestamp"
 require "logstash/plugin_mixins/aws_config"
 require "logstash/shutdown_watcher"
 require "logstash/errors"
-require 'logstash/inputs/s3sqs/patch'
-require "aws-sdk"
+require "aws-sdk-s3"
+require "aws-sdk-sns"
+require "aws-sdk-sqs"
 
 # "object-oriented interfaces on top of API clients"...
 # => Overhead. FIXME: needed?
@@ -34,8 +35,6 @@ require_relative 's3/client_factory'
 require_relative 's3/downloader'
 require_relative 'codec_factory'
 require_relative 's3snssqs/log_processor'
-
-Aws.eager_autoload!
 
 # Get logs from AWS s3 buckets as issued by an object-created event via sqs.
 #
