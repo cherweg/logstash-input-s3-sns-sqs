@@ -26,7 +26,7 @@ java_import java.io.FileInputStream
 java_import java.io.BufferedReader
 java_import java.util.zip.GZIPInputStream
 java_import java.util.zip.ZipException
-import java.lang.StringBuilder
+java_import java.lang.StringBuilder
 
 # our helper classes
 # these may go into this file for brevity...
