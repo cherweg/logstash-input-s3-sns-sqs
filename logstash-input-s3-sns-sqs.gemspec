@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name            = 'logstash-input-s3-sns-sqs'
-  s.version         = '2.2.0.pre-sdk3'
+  s.version         = '2.2.1.pre'
   s.licenses        = ['Apache-2.0']
   s.summary         = "Get logs from AWS s3 buckets as issued by an object-created event via sns -> sqs."
   s.description     = "This gem is a logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/plugin install gemname. This gem is not a stand-alone program"
@@ -28,10 +28,10 @@ Gem::Specification.new do |s|
   s.add_runtime_dependency "aws-sdk-sqs"
   s.add_runtime_dependency "aws-sdk-sns"
   s.add_runtime_dependency "aws-sdk-resourcegroups"
+  s.add_runtime_dependency 'logstash-mixin-aws', '>= 5.1.0'
 
   s.add_development_dependency "logstash-codec-json_lines"
   s.add_development_dependency "logstash-codec-multiline"
-  s.add_development_dependency "logstash-codec-json"
   s.add_development_dependency "logstash-codec-line"
   s.add_development_dependency "logstash-devutils"
   s.add_development_dependency "logstash-input-generator"
