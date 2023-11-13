@@ -9,6 +9,7 @@ class S3Downloader
     @stopped = stop_semaphore
     @factory = options[:s3_client_factory]
     @delete_on_success = options[:delete_on_success]
+    @move_to_bucket = options[:move_to_bucket]
     @include_object_properties = options[:include_object_properties]
   end
 
@@ -40,13 +41,24 @@ class S3Downloader
   end
 
   def cleanup_s3object(record)
-    return unless @delete_on_success
+    return unless @delete_on_success || @move_to_bucket
     begin
       @factory.get_s3_client(record[:bucket]) do |s3|
         s3.delete_object(bucket: record[:bucket], key: record[:key])
       end
     rescue Exception => e
       @logger.warn("Failed to delete s3 object", :record => record, :error => e)
+    end
+  end
+
+  def move_s3object(record)
+    return unless @move_to_bucket
+    begin
+      @factory.get_s3_client(@move_to_bucket) do |s3|
+        s3.copy_object(bucket: @move_to_bucket, copy_source: "/#{record[:bucket]}/#{record[:key]}", key: record[:key])
+      end
+    rescue Exception => e
+      @logger.warn("Failed to move s3 object", :record => record, :error => e)
     end
   end
 

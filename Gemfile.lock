@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (2.2.0.beta.1)
+    logstash-input-s3-sns-sqs (2.2.0.pre.sdk3)
       aws-sdk-core (~> 3)
       aws-sdk-resourcegroups
       aws-sdk-s3
@@ -16,29 +16,29 @@ GEM
   remote: https://rubygems.org/
   specs:
     aws-eventstream (1.2.0)
-    aws-partitions (1.598.0)
-    aws-sdk-core (3.131.1)
+    aws-partitions (1.744.0)
+    aws-sdk-core (3.171.0)
       aws-eventstream (~> 1, >= 1.0.2)
-      aws-partitions (~> 1, >= 1.525.0)
-      aws-sigv4 (~> 1.1)
+      aws-partitions (~> 1, >= 1.651.0)
+      aws-sigv4 (~> 1.5)
       jmespath (~> 1, >= 1.6.1)
-    aws-sdk-kms (1.57.0)
-      aws-sdk-core (~> 3, >= 3.127.0)
+    aws-sdk-kms (1.63.0)
+      aws-sdk-core (~> 3, >= 3.165.0)
       aws-sigv4 (~> 1.1)
-    aws-sdk-resourcegroups (1.45.0)
-      aws-sdk-core (~> 3, >= 3.127.0)
+    aws-sdk-resourcegroups (1.48.0)
+      aws-sdk-core (~> 3, >= 3.165.0)
       aws-sigv4 (~> 1.1)
-    aws-sdk-s3 (1.114.0)
-      aws-sdk-core (~> 3, >= 3.127.0)
+    aws-sdk-s3 (1.120.1)
+      aws-sdk-core (~> 3, >= 3.165.0)
       aws-sdk-kms (~> 1)
       aws-sigv4 (~> 1.4)
-    aws-sdk-sns (1.53.0)
-      aws-sdk-core (~> 3, >= 3.127.0)
+    aws-sdk-sns (1.60.0)
+      aws-sdk-core (~> 3, >= 3.165.0)
       aws-sigv4 (~> 1.1)
-    aws-sdk-sqs (1.51.1)
-      aws-sdk-core (~> 3, >= 3.127.0)
+    aws-sdk-sqs (1.53.0)
+      aws-sdk-core (~> 3, >= 3.165.0)
       aws-sigv4 (~> 1.1)
-    aws-sigv4 (1.5.0)
+    aws-sigv4 (1.5.2)
       aws-eventstream (~> 1, >= 1.0.2)
     cabin (0.9.0)
     chronic_duration (0.10.6)
@@ -67,7 +67,7 @@ GEM
     jar-dependencies (0.4.1)
     jls-grok (0.11.5)
       cabin (>= 0.6.0)
-    jmespath (1.6.1)
+    jmespath (1.6.2)
     jrjackson (0.4.14-java)
     jruby-openssl (0.9.19-java)
     kramdown (1.14.0)
@@ -180,6 +180,7 @@ GEM
 
 PLATFORMS
   java
+  universal-java-1.8
   universal-java-18
 
 DEPENDENCIES
