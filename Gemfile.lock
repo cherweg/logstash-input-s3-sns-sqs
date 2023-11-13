@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (2.2.1)
+    logstash-input-s3-sns-sqs (2.2.1.pre)
       aws-sdk-core (~> 3)
       aws-sdk-resourcegroups
       aws-sdk-s3
@@ -10,7 +10,8 @@ PATH
       concurrent-ruby
       logstash-codec-json
       logstash-codec-plain
-      logstash-core-plugin-api
+      logstash-core-plugin-api (~> 2.0)
+      stud (>= 0.0.22)
 
 GEM
   remote: https://rubygems.org/
@@ -189,11 +190,10 @@ PLATFORMS
   universal-java-21
 
 DEPENDENCIES
-  logstash-codec-json
   logstash-codec-json_lines
   logstash-codec-line
   logstash-codec-multiline
-  logstash-devutils
+  logstash-devutils (>= 0.0.16)
   logstash-input-generator
   logstash-input-s3-sns-sqs!
   timecop
