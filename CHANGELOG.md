@@ -1,3 +1,9 @@
+##2.2.2
+Fix gzip validation not to return true if only file extension is gz
+Make logstash 8/9 compatible
+Inhouse mixin components
+BUGFIX for JRuby 9.4+
+FEATURE move_to_bucket (PR #82)
 ##2.2.0
 -AWS-SDK-3 update
 ##2.1.3

@@ -77,7 +77,7 @@ module LogProcessor
   end
 
   def gzip?(filename)
-    filename.end_with?('.gz','.gzip') && MagicGzipValidator.new(File.new(filename, 'rb')).valid?
+    MagicGzipValidator.new(File.new(filename, 'rb')).valid?
   rescue Exception => e
     @logger.warn("Problem while gzip detection", :error => e)
   end
