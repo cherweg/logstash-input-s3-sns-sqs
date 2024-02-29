@@ -79,6 +79,7 @@ This plugin supports the following configuration options plus the <<plugins-{typ
 | <<plugins-{type}s-{plugin}-delete_on_success>>|<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-include_object_properties>>|<<array,array>>|No
 | <<plugins-{type}s-{plugin}-from_sns>> |<<boolean,boolean>>|No
+| <<plugins-{type}s-{plugin}-sns_raw_payload_delivery_disabled>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-sqs_skip_delete>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-sqs_delete_on_failure>> |<<boolean,boolean>>|No
 | <<plugins-{type}s-{plugin}-temporary_directory>> |<<string,string>>|No
@@ -186,11 +187,20 @@ Example:
 
 [id="plugins-{type}s-{plugin}-from_sns"]
 ===== `from_sns` 
+WARNING: This setting is deprecated; replaced with `sns_raw_payload_delivery_disabled`.
 
   * Value type is <<boolean,boolean>>
-  * Default: true
+  * Default: false
 
-The message format is different, if the message comes from SNS.
+See <<plugins-{type}s-{plugin}-sns_raw_payload_delivery_disabled>>, this setting does the same task, it remains (for now) for backwards compatibility with previous versions of this plugin, it will soon be removed!
+
+[id="plugins-{type}s-{plugin}-sns_raw_payload_delivery_disabled"]
+===== `sns_raw_payload_delivery_disabled`
+
+  * Value type is <<boolean,boolean>>
+  * Default: false
+
+If you disable https://docs.aws.amazon.com/sns/latest/dg/sns-large-payload-raw-message-delivery.html[Amazon SNS raw message delivery] the format of messages will differ, this you need to enable this to ensure compatibility. If you're using a standard SNS setup, this will *not* be required.
 
 [id="plugins-{type}s-{plugin}-sqs_skip_delete"]
 ===== `sqs_skip_delete` 
