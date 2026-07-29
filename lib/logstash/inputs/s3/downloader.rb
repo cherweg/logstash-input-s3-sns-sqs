@@ -35,7 +35,7 @@ class S3Downloader
   end
 
   def cleanup_local_object(record)
-    FileUtils.remove_entry_secure(record[:local_file], true) if ::File.exists?(record[:local_file])
+    FileUtils.remove_entry_secure(record[:local_file], true) if ::File.exist?(record[:local_file])
   rescue Exception => e
     @logger.warn("Could not delete file", :file => record[:local_file], :error => e)
   end
