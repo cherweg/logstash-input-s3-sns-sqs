@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name            = 'logstash-input-s3-sns-sqs'
-  s.version         = '2.2.3'
+  s.version         = '2.2.4'
   s.licenses        = ['Apache-2.0']
   s.summary         = "Get logs from AWS s3 buckets as issued by an object-created event via sns -> sqs."
   s.description     = "This gem is a logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/plugin install gemname. This gem is not a stand-alone program"
@@ -13,7 +13,11 @@ Gem::Specification.new do |s|
   s.required_ruby_version = '>= 3.1'
 
   # Files
-  s.files = Dir['lib/**/*','spec/**/*','vendor/**/*','*.gemspec','*.md','CONTRIBUTORS','Gemfile','LICENSE','NOTICE.TXT']
+  # NOTE: We deliberately exclude vendor/bundle/** (bundler-installed dev gems
+  # end up there when developers run `bundle install --path vendor/bundle`).
+  # Including them ballooned 2.2.3 to 63 MB — see CHANGELOG. vendor/ is still
+  # included for future jar-dependencies (e.g. vendor/jar-dependencies/**).
+  s.files = Dir['lib/**/*','spec/**/*','vendor/**/*','*.gemspec','*.md','CONTRIBUTORS','Gemfile','LICENSE','NOTICE.TXT'].reject { |f| f.start_with?('vendor/bundle/') }
 
   # Tests
   s.test_files = s.files.grep(%r{^(test|spec|features)/})

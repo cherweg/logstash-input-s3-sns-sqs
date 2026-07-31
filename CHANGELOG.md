@@ -1,4 +1,7 @@
-##2.2.3
+##2.2.4
+- BUGFIX: Exclude `vendor/bundle/**` from the packaged gem. 2.2.3 accidentally shipped 63 MB of bundler-installed dev dependencies because the `s.files` glob included the whole `vendor/` tree. 2.2.3 is yanked from RubyGems. 2.2.4 has the same code fix as 2.2.3 (see below), just correctly packaged.
+
+##2.2.3 (YANKED - packaging error, use 2.2.4)
 - BUGFIX: `File.exists?` -> `File.exist?` for Ruby 3.2+ / JRuby 10 (Logstash 9.4.x). Fixes #93, #94. Thanks @ashleygould (PR #95).
 - CHORE: Add `required_ruby_version = '>= 3.1'` documenting JRuby 9.4+ baseline.
 - SECURITY note: CVE-2026-54904/54905/54906 in concurrent-ruby are not exploitable via this plugin (we only use `Concurrent::AtomicBoolean`). No dependency floor is bumped because logstash-core pins concurrent-ruby itself.

@@ -1,12 +1,13 @@
 PATH
   remote: .
   specs:
-    logstash-input-s3-sns-sqs (2.2.1.pre)
+    logstash-input-s3-sns-sqs (2.2.4)
       aws-sdk-core (~> 3)
       aws-sdk-resourcegroups
       aws-sdk-s3
       aws-sdk-sns
       aws-sdk-sqs
+      concurrent-ruby
       logstash-codec-json
       logstash-codec-plain
       logstash-core-plugin-api (~> 2.0)
@@ -188,6 +189,7 @@ PLATFORMS
   universal-java-17
   universal-java-18
   universal-java-21
+  universal-java-8
 
 DEPENDENCIES
   logstash-codec-json_lines

@@ -6,3 +6,7 @@
 testing/
 system-cas.pem
 vendor/
+# gem build intermediates when unpacking / inspecting gems locally
+checksums.yaml.gz
+data.tar.gz
+metadata.gz
