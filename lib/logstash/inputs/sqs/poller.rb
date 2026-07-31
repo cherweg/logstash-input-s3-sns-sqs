@@ -40,6 +40,7 @@ class SqsPoller
     @stopped = stop_semaphore
     @queue = client_options[:sqs_queue]
     @from_sns = client_options[:from_sns]
+    @sns_raw_payload_delivery_disabled = client_options[:sns_raw_payload_delivery_disabled]
     @max_processing_time = client_options[:max_processing_time]
     @sqs_delete_on_failure = client_options[:sqs_delete_on_failure]
     @options = DEFAULT_OPTIONS.merge(poller_options)
@@ -148,7 +149,7 @@ class SqsPoller
   def preprocess(message)
     @logger.debug("Inside Preprocess: Start", :event => message)
     payload = JSON.parse(message.body)
-    payload = JSON.parse(payload['Message']) if @from_sns
+    payload = JSON.parse(payload['Message']) if @from_sns || @sns_raw_payload_delivery_disabled
     @logger.debug("Payload in Preprocess: ", :payload => payload)
     return nil unless payload['Records']
     payload['Records'].each do |record|

@@ -170,8 +170,12 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
   # Name of the SQS Queue to pull messages from. Note that this is just the name of the queue, not the URL or ARN.
   config :queue, :validate => :string, :required => true
   config :queue_owner_aws_account_id, :validate => :string, :required => false
-  # Whether the event is processed though an SNS to SQS. (S3>SNS>SQS = true |S3>SQS=false)
-  config :from_sns, :validate => :boolean, :default => true
+
+  # Should be enabled if 'SNS raw message delivery' is disabled
+  # 'from_sns' is soon to be deprecated, remains for compatibility
+  config :from_sns, :validate => :boolean, :default => false
+  config :sns_raw_payload_delivery_disabled, :validate => :boolean, :default => false
+
   config :sqs_skip_delete, :validate => :boolean, :default => false
   config :sqs_wait_time_seconds, :validate => :number, :required => false
   config :sqs_delete_on_failure, :validate => :boolean, :default => true
@@ -259,6 +263,7 @@ class LogStash::Inputs::S3SNSSQS < LogStash::Inputs::Threadable
         sqs_queue: @queue,
         queue_owner_aws_account_id: @queue_owner_aws_account_id,
         from_sns: @from_sns,
+        sns_raw_payload_delivery_disabled: @sns_raw_payload_delivery_disabled,
         max_processing_time: @max_processing_time,
         sqs_delete_on_failure: @sqs_delete_on_failure
       },
