@@ -4,3 +4,5 @@
 .bundle/
 .vendor/
 testing/
+system-cas.pem
+vendor/
